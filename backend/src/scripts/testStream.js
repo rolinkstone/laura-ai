@@ -53,12 +53,22 @@ const testPublic = async () => {
 
 const testAuth = async () => {
   console.log('=== AUTH STREAM /api/chat/stream ===');
-  const login = await fetch(`${API}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'admin', password: 'admin123' })
-  });
-  const { token } = await login.json();
+  let token = process.env.TEST_TOKEN;
+  if (!token) {
+    const login = await fetch(`${API}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: process.env.TEST_USERNAME || 'admin',
+        password: process.env.TEST_PASSWORD || ''
+      })
+    });
+    ({ token } = await login.json());
+  }
+  if (!token) {
+    console.log('❌ Tidak ada token. Set TEST_TOKEN di .env (lihat DEPLOY.md).');
+    return;
+  }
 
   const res = await fetch(`${API}/chat/stream`, {
     method: 'POST',

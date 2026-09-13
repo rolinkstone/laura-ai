@@ -43,7 +43,7 @@ NEXT_PUBLIC_API_URL=http://localhost:5005/api
 ## 🔐 Autentikasi (Keycloak SSO + manual)
 
 - **SSO**: tombol "Masuk dengan Keycloak" di `/login` memakai **NextAuth** (`/api/auth/[...nextauth]`) dengan provider Keycloak. Setelah login, access token ditukar ke JWT aplikasi lewat `POST /api/auth/keycloak`.
-- **Manual**: form username/password (`admin`/`admin123`) tetap tersedia sebagai cadangan.
+- Login hanya lewat **Keycloak** — tidak ada form username/password.
 - Logout memakai `signOut()` (redirect ke Keycloak end-session).
 - Konfigurasi di `.env.local`: `KEYCLOAK_ISSUER`, `KEYCLOAK_CLIENT_ID` (`laura-ai`), `KEYCLOAK_CLIENT_SECRET`, `NEXTAUTH_URL`, `NEXTAUTH_SECRET`.
 - ⚠️ Jangan pakai secret dev (`secer`) di produksi — lihat `DEPLOY.md`.

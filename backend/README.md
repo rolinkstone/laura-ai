@@ -76,7 +76,9 @@ npm run db:schema
 npm run seed
 ```
 
-> Akun admin default: **admin** / **admin123**
+> Seeder tidak membuat user admin. Login memakai **Keycloak SSO** — user lokal
+> dibuat otomatis saat login pertama, dengan role dari realm role Keycloak
+> (`admin`/`super_admin` → admin, `analyst` → analyst, lainnya → viewer).
 
 ### 5. Jalankan server
 

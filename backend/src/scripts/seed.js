@@ -1,16 +1,14 @@
 /**
  * Script seed data awal:
  *  - 3 role (admin, analyst, viewer)
- *  - 1 user admin (password: admin123)
  *  - contoh kategori dokumen, sumber, dan FAQ
+ *
+ * Catatan: TIDAK membuat user admin — login sepenuhnya lewat Keycloak.
  *
  * Jalankan: npm run seed
  */
 require('dotenv').config();
-const bcrypt = require('bcrypt');
 const { pool } = require('../config/db');
-
-const ADMIN_PASSWORD = 'admin123';
 
 const seed = async () => {
   try {
@@ -33,18 +31,10 @@ const seed = async () => {
     console.log('✅ Roles siap (admin, analyst, viewer)');
 
     // ============ 2. Admin user ============
-    const [adminRole] = await pool.query('SELECT id FROM roles WHERE name = ?', ['admin']);
-    const adminRoleId = adminRole[0].id;
-
-    const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
-
-    await pool.query(
-      `INSERT INTO users (username, email, password, full_name, nip, role_id)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT (username) DO UPDATE SET full_name = EXCLUDED.full_name`,
-      ['admin', 'admin@bbpom.local', hashedPassword, 'Administrator BPOM', null, adminRoleId]
-    );
-    console.log(`✅ User admin siap (username: admin, password: ${ADMIN_PASSWORD})`);
+    // TIDAK dibuat di sini. Login sepenuhnya lewat Keycloak: user lokal dibuat
+    // otomatis saat login SSO (lihat services/keycloakService.js) dengan role
+    // dari realm role Keycloak: admin/super_admin → admin,
+    // operator/analyst/petugas → analyst, lainnya → viewer.
 
     // ============ 3. Knowledge Base - Kategori dokumen (hierarki) ============
     const [docCount] = await pool.query('SELECT COUNT(*) AS c FROM documents');

@@ -69,19 +69,31 @@ dan **nama container bisa dipakai** sebagai host.
 | Docker `network_mode: host` (alternatif) | `127.0.0.1` — postgres wajib publish port 5432 |
 | Langsung di host (`npm run dev`) | `127.0.0.1` |
 
-Cari nama network container postgres:
+**Cara pasti (disarankan)** — buat network khusus lalu sambungkan container
+postgres ke dalamnya. Tidak perlu menebak nama network milik project postgres:
 
 ```bash
-docker inspect postgresql_5jhh-postgresql_5JhH-1 \
-  --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+docker network create laura-net 2>/dev/null || true
+docker network connect laura-net postgresql_5jhh-postgresql_5JhH-1
 ```
 
 Lalu di `.env`:
 
 ```env
-POSTGRES_NETWORK=<hasil-perintah-di-atas>
+POSTGRES_NETWORK=laura-net
 DB_HOST=postgresql_5jhh-postgresql_5JhH-1
 BACKEND_HOST=0.0.0.0
+```
+
+> ⚠️ Bila container postgres nanti dibuat ulang oleh compose project miliknya,
+> sambungan network ikut hilang — jalankan ulang perintah `docker network connect`.
+
+**Cara alternatif** — pakai network yang sudah ada:
+
+```bash
+docker network ls
+docker inspect postgresql_5jhh-postgresql_5JhH-1 \
+  --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
 ```
 
 > Bila `DB_HOST` diisi nama container tetapi backend diubah ke
@@ -131,14 +143,29 @@ docker exec -i $PG psql -U postgres -c "CREATE DATABASE bbpom_ai OWNER bbpom_ai;
 docker exec -i $PG psql -U bbpom_ai -d bbpom_ai < backend/sql/schema.pg.sql
 ```
 
-Seed data awal (opsional, jalankan setelah container backend hidup):
+Seed data awal — mengisi `roles`, kategori, sumber, dan FAQ.
+**Wajib dijalankan**, tanpa ini login SSO gagal dengan error foreign key
+(`roles` kosong → `role_id` tidak ditemukan):
 
 ```bash
 docker compose exec backend npm run seed
 ```
 
-> ⚠️ Seeder membuat akun admin default `admin` / `admin123`.
-> **Ganti password ini segera** setelah deploy pertama.
+> ℹ️ Seeder **tidak** membuat user admin. Login sepenuhnya lewat Keycloak —
+> user lokal dibuat otomatis saat login pertama (`services/keycloakService.js`).
+
+### Memberi akses admin ke user Keycloak
+
+Role lokal ditentukan dari **realm role** Keycloak:
+
+| Realm role Keycloak | Role lokal |
+| --- | --- |
+| `super_admin`, `admin` | `admin` — akses penuh (Admin Console) |
+| `operator`, `analyst`, `petugas` | `analyst` |
+| lainnya | `viewer` |
+
+Agar akun Anda bisa masuk ke Admin Console: Keycloak → **Users** → pilih user →
+tab **Role mapping** → **Assign role** → centang realm role `admin`.
 
 ---
 
@@ -307,6 +334,7 @@ Yang **wajib** bersih dari repo:
 
 | Gejala | Penyebab & solusi |
 | --- | --- |
+| `network <nama> not found` saat `docker compose up` | `POSTGRES_NETWORK` di `.env` bukan nama network yang ada di server ini. Buat network khusus: `docker network create laura-net && docker network connect laura-net postgresql_5jhh-postgresql_5JhH-1`, lalu set `POSTGRES_NETWORK=laura-net`. Lihat bagian 2. |
 | `getaddrinfo ENOTFOUND <nama-container>` | Backend tidak berada di network Docker yang sama dengan postgres. Pastikan `POSTGRES_NETWORK` di `.env` benar (lihat bagian 2), lalu `docker compose up -d --force-recreate backend`. Bila sengaja memakai `network_mode: host`, pakai `DB_HOST=127.0.0.1`. |
 | `password authentication failed for user "..."` | Password/user di `.env` tidak cocok dengan container. Cek nilai yang benar-benar diterima container: `docker compose exec backend node -e "console.log(process.env.DB_USER,(process.env.DB_PASSWORD||'').length,process.env.DB_NAME)"` — bandingkan panjangnya. Bila beda, password kemungkinan terpotong karakter `#`/`$` → bungkus kutip tunggal di `.env`. |
 | `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` | express-rate-limit mendeteksi `X-Forwarded-For` dari nginx tapi `trust proxy` mati. Pastikan `TRUST_PROXY=1` di `.env`, lalu `docker compose up -d backend`. |

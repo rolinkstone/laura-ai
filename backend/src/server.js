@@ -15,6 +15,23 @@ const start = async () => {
     console.warn('⚠️ Server tetap berjalan, tetapi database tidak terhubung. Periksa file .env');
   }
 
+  // Peringatan dini: tanpa baris di tabel `roles`, login SSO gagal dengan
+  // error foreign key (users.role_id → roles.id).
+  if (connected) {
+    try {
+      const { pool } = require('./config/db');
+      const [rows] = await pool.query('SELECT COUNT(*)::int AS c FROM roles');
+      if (!rows[0]?.c) {
+        console.warn(
+          '⚠️  Tabel `roles` KOSONG — jalankan `npm run seed` di container.\n' +
+            '    Tanpa itu login SSO gagal: users.role_id → roles.id (FK 23503).'
+        );
+      }
+    } catch {
+      // Tabel belum ada / skema belum di-import — pesan koneksi di atas sudah cukup
+    }
+  }
+
   // Muat konfigurasi LLM runtime (dari tabel settings, fallback .env)
   try {
     await llmConfig.loadConfig();

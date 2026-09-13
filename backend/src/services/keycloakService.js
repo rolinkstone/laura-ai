@@ -28,8 +28,27 @@ const syncKeycloakUser = async (kc) => {
   const fullName = kc.name || kc.preferred_username || username;
   const roleName = mapRole(kc.realm_access?.roles);
 
-  const [role] = await pool.query('SELECT id, name FROM roles WHERE name = ?', [roleName]);
-  const roleId = role[0]?.id || 2;
+  // Cari role lokal sesuai pemetaan. Bila belum ada, pakai role dengan hak
+  // akses paling rendah yang tersedia. Kalau tabel `roles` benar-benar kosong,
+  // beri pesan yang jelas — bukan error foreign key yang membingungkan.
+  const [roleRows] = await pool.query('SELECT id, name FROM roles WHERE name = ?', [roleName]);
+  let roleId = roleRows[0]?.id;
+  let roleNameUsed = roleRows[0]?.name || roleName;
+
+  if (!roleId) {
+    const [fallback] = await pool.query(
+      `SELECT id, name FROM roles
+        ORDER BY CASE name WHEN 'viewer' THEN 1 WHEN 'analyst' THEN 2 WHEN 'admin' THEN 3 ELSE 4 END
+        LIMIT 1`
+    );
+    if (!fallback[0]) {
+      throw new Error(
+        'Tabel "roles" kosong. Jalankan `npm run seed` di container backend lebih dulu.'
+      );
+    }
+    roleId = fallback[0].id;
+    roleNameUsed = fallback[0].name;
+  }
 
   const [existing] = await pool.query(
     'SELECT id, username, email, full_name, role_id, is_active FROM users WHERE username = ?',
@@ -47,7 +66,7 @@ const syncKeycloakUser = async (kc) => {
       email,
       full_name: fullName,
       role_id: roleId,
-      role_name: roleName,
+      role_name: roleNameUsed,
       is_active: 1
     };
   }
@@ -66,7 +85,7 @@ const syncKeycloakUser = async (kc) => {
     email,
     full_name: fullName,
     role_id: roleId,
-    role_name: roleName,
+    role_name: roleNameUsed,
     is_active: 1
   };
 };

@@ -5,13 +5,31 @@
 require('dotenv').config();
 const API = `http://localhost:${process.env.PORT || 5005}/api`;
 
-(async () => {
-  const login = await fetch(`${API}/auth/login`, {
+/**
+ * Ambil token untuk menguji endpoint admin.
+ * Utamakan TEST_TOKEN di .env — salin dari browser setelah login Keycloak:
+ * DevTools → Application → Local Storage → key `bbpom_token`.
+ */
+const getToken = async () => {
+  if (process.env.TEST_TOKEN) return process.env.TEST_TOKEN;
+
+  const res = await fetch(`${API}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'admin', password: 'admin123' })
+    body: JSON.stringify({
+      username: process.env.TEST_USERNAME || 'admin',
+      password: process.env.TEST_PASSWORD || ''
+    })
   });
-  const { token } = await login.json();
+  const { token } = await res.json();
+  if (!token) {
+    throw new Error('Gagal mengambil token. Set TEST_TOKEN di .env (lihat DEPLOY.md).');
+  }
+  return token;
+};
+
+(async () => {
+  const token = await getToken();
   const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 
   const getConfig = async () =>
