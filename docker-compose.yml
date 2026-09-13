@@ -49,6 +49,11 @@ services:
       # ---- CORS: hanya domain frontend ----
       CORS_ORIGIN: ${PUBLIC_FRONTEND_URL}
 
+      # ---- Reverse proxy (nginx) ----
+      # Percaya 1 hop proxy agar X-Forwarded-For / IP pengguna terbaca benar
+      # oleh express-rate-limit. Isi 0 bila tidak memakai reverse proxy.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+
       # ---- Embedding / RAG ----
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Xenova/multilingual-e5-small}
       SEARCH_MIN_SCORE: ${SEARCH_MIN_SCORE:-0.15}

@@ -24,9 +24,14 @@ const start = async () => {
   }
 
   app.listen(PORT, HOST, () => {
-    console.log(`🚀 Server BPOM AI berjalan di http://${HOST}:${PORT}`);
+    // Alamat di bawah ini adalah alamat BIND (internal container/host).
+    // URL publik seperti https://data-laura.bbpompky.id ditangani reverse proxy.
+    console.log(`🚀 Server BPOM AI siap menerima request (bind http://${HOST}:${PORT})`);
     console.log(`   Environment : ${process.env.NODE_ENV || 'development'}`);
-    console.log(`   API base    : http://${HOST}:${PORT}/api`);
+    console.log(`   Health check: http://${HOST}:${PORT}/api/health`);
+    if (HOST === '127.0.0.1') {
+      console.log('   Catatan     : mode loopback \u2014 akses dari luar lewat reverse proxy');
+    }
   });
 };
 
