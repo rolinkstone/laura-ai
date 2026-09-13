@@ -6,6 +6,7 @@ import {
   FileText,
   Pencil,
   Trash2,
+  Download,
   RefreshCw,
   Brain,
   Eye,
@@ -14,7 +15,7 @@ import {
   X,
   Globe
 } from 'lucide-react';
-import { api, getToken } from '../../../lib/api';
+import { api, getToken, downloadFile } from '../../../lib/api';
 import {
   Card,
   Button,
@@ -54,6 +55,7 @@ export default function DokumenPage() {
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
   const [showUrl, setShowUrl] = useState(false);
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlForm, setUrlForm] = useState({ url: '', title: '', description: '', category_id: '', source_id: '' });
@@ -168,6 +170,23 @@ export default function DokumenPage() {
       setError(err.message);
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Unduh PDF asli dokumen (file tersimpan di server)
+  const download = async (doc) => {
+    setDownloadingId(doc.id);
+    setError('');
+    try {
+      const safeTitle = String(doc.title || 'dokumen').replace(/[\\/:*?"<>|]/g, '_');
+      await downloadFile(`/documents/${doc.id}/file`, {
+        token: getToken(),
+        filename: `${safeTitle}.${doc.file_type || 'pdf'}`
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -350,6 +369,20 @@ export default function DokumenPage() {
                           <Loader2 size={16} className="animate-spin text-slate-400" />
                         ) : (
                           <>
+                            {d.file_type !== 'url' && (
+                              <button
+                                className="p-1.5 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-50"
+                                title="Unduh PDF"
+                                onClick={() => download(d)}
+                                disabled={downloadingId === d.id}
+                              >
+                                {downloadingId === d.id ? (
+                                  <Loader2 size={15} className="animate-spin" />
+                                ) : (
+                                  <Download size={15} />
+                                )}
+                              </button>
+                            )}
                             <button className="p-1.5 rounded hover:bg-slate-100 text-slate-500" title="Edit metadata" onClick={() => setEditing({ ...d, document_date: d.document_date || '', effective_date: d.effective_date || '' })}>
                               <Pencil size={15} />
                             </button>

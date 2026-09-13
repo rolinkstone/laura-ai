@@ -97,6 +97,45 @@ export async function api(path, { method = 'GET', body, token, isForm } = {}) {
   return data;
 }
 
+/**
+ * Unduh file dari API lalu simpan di komputer pengguna.
+ * Endpoint unduhan butuh header Authorization, jadi tidak bisa memakai
+ * <a href> biasa — file diambil sebagai blob dulu, baru di-trigger.
+ *
+ * @param {string} path mis. `/documents/12/file`
+ * @param {{token?: string, filename?: string}} opsi nama file simpanan
+ * @returns {Promise<string>} nama file yang dipakai
+ */
+export async function downloadFile(path, { token, filename } = {}) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data.message || `Gagal mengunduh file (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+
+  // Pakai nama dari Content-Disposition bila ada (butuh exposedHeaders di CORS)
+  const disposition = res.headers.get('content-disposition') || '';
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  const name = filename || (match ? decodeURIComponent(match[1]) : 'dokumen.pdf');
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  return name;
+}
+
 // ============ Streaming (SSE) ============
 // path default: /public/chat/stream (chat publik tanpa login)
 export async function streamChat({

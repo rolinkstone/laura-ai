@@ -24,7 +24,9 @@ app.use(helmet());
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
-    credentials: true
+    credentials: true,
+    // Agar browser bisa membaca nama file pada saat unduh dokumen
+    exposedHeaders: ['Content-Disposition']
   })
 );
 app.use(express.json({ limit: '10mb' }));
