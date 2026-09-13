@@ -24,21 +24,25 @@ const getApiKeyValue = () => getApiKey('ninerouter') || process.env.NINEROUTER_A
 // Base URL gateway 9Router (dari pengaturan runtime/dashboard, fallback env & default).
 const getBaseUrl = () => getConfiguredBaseUrl('ninerouter').replace(/\/$/, '');
 
-const buildBody = ({ system, user }, { stream }) => ({
+const buildBody = ({ system, user }, { stream, maxTokens = null, temperature = null }) => ({
   model: getModelName(),
   messages: [
     { role: 'system', content: system },
     { role: 'user', content: user }
   ],
-  temperature: 0.3,
-  max_tokens: getMaxTokens(),
+  temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.3,
+  max_tokens: Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0 ? Number(maxTokens) : getMaxTokens(),
   stream
 });
 
 /**
  * Kirim request ke 9Router dan kembalikan reader body-nya (selalu streaming SSE).
+ *
+ * @param {{system: string, user: string}} param
+ * @param {{stream: boolean, maxTokens?: number|null, temperature?: number|null,
+ *          timeoutMs?: number|null}} options
  */
-const fetchStream = async ({ system, user }, { stream }) => {
+const fetchStream = async ({ system, user }, { stream, maxTokens = null, temperature = null, timeoutMs = null }) => {
   const apiKey = getApiKeyValue();
   if (!apiKey) {
     throw new Error('NINEROUTER_API_KEY belum dikonfigurasi (di dashboard AI atau .env)');
@@ -47,11 +51,22 @@ const fetchStream = async ({ system, user }, { stream }) => {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-  const res = await fetch(`${getBaseUrl()}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(buildBody({ system, user }, { stream }))
-  });
+  const timeout = Number(timeoutMs) > 0 ? Number(timeoutMs) : null;
+
+  let res;
+  try {
+    res = await fetch(`${getBaseUrl()}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildBody({ system, user }, { stream, maxTokens, temperature })),
+      ...(timeout ? { signal: AbortSignal.timeout(timeout) } : {})
+    });
+  } catch (err) {
+    if (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      throw new Error(`9Router timeout setelah ${timeout} ms`);
+    }
+    throw new Error(`Gagal menghubungi 9Router: ${err.message}`);
+  }
 
   if (!res.ok) {
     const detail = await res.text();
@@ -66,8 +81,8 @@ const fetchStream = async ({ system, user }, { stream }) => {
  * @param {{system: string, user: string}} param
  * @returns {Promise<{text: string, model: string, tokensUsed: number}>}
  */
-const chat = async ({ system, user }) => {
-  const reader = await fetchStream({ system, user }, { stream: true });
+const chat = async ({ system, user, maxTokens = null, temperature = null, timeoutMs = null }) => {
+  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs });
   const decoder = new TextDecoder();
   let buffer = '';
   let text = '';
@@ -108,8 +123,8 @@ const chat = async ({ system, user }) => {
  * @param {{system: string, user: string}} param
  * @returns {AsyncGenerator<string>}
  */
-async function* streamTokens({ system, user }) {
-  const reader = await fetchStream({ system, user }, { stream: true });
+async function* streamTokens({ system, user, maxTokens = null, temperature = null, timeoutMs = null }) {
+  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs });
   const decoder = new TextDecoder();
   let buffer = '';
 

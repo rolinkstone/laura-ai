@@ -1,5 +1,13 @@
 const express = require('express');
-const { getStats, getConfig, getLlmConfig, updateLlmConfig } = require('../controllers/admin.controller');
+const {
+  getStats,
+  getConfig,
+  getLlmConfig,
+  updateLlmConfig,
+  getWebSearchConfig,
+  updateWebSearchConfig,
+  checkWebSearchUrl
+} = require('../controllers/admin.controller');
 const { body } = require('express-validator');
 const validate = require('../middlewares/validate');
 const { auth, authorize } = require('../middlewares/auth');
@@ -21,5 +29,26 @@ router.get('/stats', getStats);
 router.get('/config', getConfig);
 router.get('/llm-config', getLlmConfig);
 router.post('/llm-config', llmUpdateValidation, validate, updateLlmConfig);
+
+// ===== Link terpercaya (lingkup sumber web) =====
+// Body: domains[], indexUrls[], allowGovSuffix, officialOnly, strictScope, reset
+const webSearchUpdateValidation = [
+  body('domains').optional({ values: 'null' }).isArray().withMessage('domains harus array'),
+  body('indexUrls').optional({ values: 'null' }).isArray().withMessage('indexUrls harus array'),
+  body('allowGovSuffix').optional().isBoolean().withMessage('allowGovSuffix harus boolean'),
+  body('officialOnly').optional().isBoolean().withMessage('officialOnly harus boolean'),
+  body('strictScope').optional().isBoolean().withMessage('strictScope harus boolean'),
+  body('useSources').optional().isBoolean().withMessage('useSources harus boolean'),
+  body('reset').optional().isBoolean().withMessage('reset harus boolean')
+];
+
+router.get('/web-search-config', getWebSearchConfig);
+router.post('/web-search-config', webSearchUpdateValidation, validate, updateWebSearchConfig);
+router.post(
+  '/web-search-config/check',
+  body('url').isString().notEmpty().withMessage('url wajib diisi'),
+  validate,
+  checkWebSearchUrl
+);
 
 module.exports = router;

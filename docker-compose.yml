@@ -73,6 +73,41 @@ services:
       # ---- Web scraper ----
       WEB_ALLOW_INSECURE_TLS: ${WEB_ALLOW_INSECURE_TLS:-false}
 
+      # ---- AI Agent (pipeline LAURA) ----
+      # PLANNER -> RAG + WEB SEARCH -> SOURCE SELECTION -> RERANKER -> LLM
+      # -> jawaban + CITATION/SOURCE (lihat backend/docs/agent-pipeline.md)
+      AGENT_ENABLED: ${AGENT_ENABLED:-true}
+      AGENT_PLANNER_ENABLED: ${AGENT_PLANNER_ENABLED:-true}
+      AGENT_RERANK_ENABLED: ${AGENT_RERANK_ENABLED:-true}
+      AGENT_RERANK_LLM: ${AGENT_RERANK_LLM:-true}
+      AGENT_TOP_K: ${AGENT_TOP_K:-5}
+      AGENT_RAG_CANDIDATES: ${AGENT_RAG_CANDIDATES:-12}
+      # Kualitas sumber: di bawah ambang ini sumber dianggap lemah
+      AGENT_MIN_TOP_SCORE: ${AGENT_MIN_TOP_SCORE:-0.35}
+      AGENT_ESCALATE_ON_WEAK: ${AGENT_ESCALATE_ON_WEAK:-true}
+      AGENT_W_VECTOR: ${AGENT_W_VECTOR:-0.35}
+      AGENT_W_LEXICAL: ${AGENT_W_LEXICAL:-0.25}
+      AGENT_W_LLM: ${AGENT_W_LLM:-0.4}
+      CITATION_ENABLED: ${CITATION_ENABLED:-true}
+      CITATION_APPEND_LIST: ${CITATION_APPEND_LIST:-true}
+
+      # ---- Web Search (situs resmi) ----
+      AGENT_WEB_SEARCH_ENABLED: ${AGENT_WEB_SEARCH_ENABLED:-true}
+      # auto | tavily | brave | serpapi | duckduckgo | internal | off
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-auto}
+      WEB_SEARCH_FALLBACK_INTERNAL: ${WEB_SEARCH_FALLBACK_INTERNAL:-true}
+      WEB_SEARCH_OFFICIAL_ONLY: ${WEB_SEARCH_OFFICIAL_ONLY:-true}
+      WEB_SEARCH_FETCH_TOP: ${WEB_SEARCH_FETCH_TOP:-3}
+      WEB_SEARCH_CONTENT_CHARS: ${WEB_SEARCH_CONTENT_CHARS:-2500}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
+      WEB_SEARCH_ALLOWED_DOMAINS: ${WEB_SEARCH_ALLOWED_DOMAINS:-}
+      # true = izinkan SEMUA *.go.id (mis. peraturan.bpk.go.id). Default false.
+      WEB_SEARCH_ALLOW_GOID_SUFFIX: ${WEB_SEARCH_ALLOW_GOID_SUFFIX:-false}
+      WEB_SEARCH_ALLOWED_SUFFIXES: ${WEB_SEARCH_ALLOWED_SUFFIXES:-}
+      WEB_SEARCH_INDEX_URLS: ${WEB_SEARCH_INDEX_URLS:-}
+
       # ---- Keycloak ----
       KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
       KEYCLOAK_SERVER_URL: ${KEYCLOAK_SERVER_URL}

@@ -75,6 +75,8 @@ export default function Chat() {
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
+  const [activeSource, setActiveSource] = useState(null); // `${msgId}:${ref}` yang sedang disorot
+
   useEffect(() => {
     const saved = getLocalHistory();
     if (saved.length > 0) setMessages(saved);
@@ -104,7 +106,16 @@ export default function Chat() {
     setMessages((m) => [
       ...m,
       { id: userId, role: 'user', content: question },
-      { id: asstId, role: 'assistant', content: '', sources: [], streaming: true, phase: 'searching' }
+      {
+        id: asstId,
+        role: 'assistant',
+        content: '',
+        sources: [],
+        citations: [],
+        streaming: true,
+        phase: 'searching',
+        phaseLabel: 'Mencari di basis pengetahuan...'
+      }
     ]);
     setLoading(true);
 
@@ -118,7 +129,25 @@ export default function Chat() {
         sessionId: getSessionId(),
         signal: controller.signal,
         onEvent: (evt) => {
-          if (evt.type === 'sources') {
+          if (evt.type === 'plan') {
+            // AI Agent memutuskan kanal pencarian (RAG dan/atau web)
+            setMessages((m) =>
+              m.map((msg) =>
+                msg.id === asstId
+                  ? {
+                      ...msg,
+                      route: evt.route || null,
+                      phaseLabel:
+                        evt.route?.useWeb && !evt.route?.ragChunks
+                          ? 'Mencari di situs resmi...'
+                          : evt.route?.useWeb
+                            ? 'Mencari di dokumen & situs resmi...'
+                            : 'Mencari di basis pengetahuan...'
+                    }
+                  : msg
+              )
+            );
+          } else if (evt.type === 'sources') {
             setMessages((m) =>
               m.map((msg) =>
                 msg.id === asstId ? { ...msg, sources: evt.sources, phase: 'thinking' } : msg
@@ -129,11 +158,25 @@ export default function Chat() {
             setMessages((m) =>
               m.map((msg) => (msg.id === asstId ? { ...msg, content: acc, phase: 'streaming' } : msg))
             );
+          } else if (evt.type === 'citations') {
+            setMessages((m) =>
+              m.map((msg) => (msg.id === asstId ? { ...msg, citations: evt.citations } : msg))
+            );
           } else if (evt.type === 'done') {
             if (evt.session_id) setSessionId(evt.session_id);
             setMessages((m) =>
               m.map((msg) =>
-                msg.id === asstId ? { ...msg, streaming: false, phase: null, model: evt.model } : msg
+                msg.id === asstId
+                  ? {
+                      ...msg,
+                      streaming: false,
+                      phase: null,
+                      phaseLabel: null,
+                      model: evt.model,
+                      citations: evt.citations || msg.citations,
+                      route: evt.route || msg.route
+                    }
+                  : msg
               )
             );
           } else if (evt.type === 'error') {
@@ -183,6 +226,20 @@ export default function Chat() {
     } catch {
       // clipboard tidak tersedia
     }
+  };
+
+  /**
+   * Sorot kartu sumber yang dirujuk chip sitasi [n] pada jawaban.
+   * @param {number} msgId id pesan asisten
+   * @param {number} ref nomor sitasi (1..N)
+   */
+  const focusSource = (msgId, ref) => {
+    if (!ref) return;
+    const key = `${msgId}:${ref}`;
+    setActiveSource(key);
+    const el = document.getElementById(`src-${msgId}-${ref}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    window.setTimeout(() => setActiveSource((cur) => (cur === key ? null : cur)), 1800);
   };
 
   const sendFeedback = async (rating) => {
@@ -534,51 +591,112 @@ export default function Chat() {
                   <div className="rounded-2xl rounded-tl-md border border-slate-200/80 bg-white/95 px-4 py-3 shadow-md shadow-navy-900/[0.04] backdrop-blur-sm">
                     {msg.streaming ? (
                       <>
-                        {msg.phase === 'searching' && <TypingIndicator label="Mencari di basis pengetahuan..." />}
+                        {msg.phase === 'searching' && (
+                          <TypingIndicator label={msg.phaseLabel || 'Mencari di basis pengetahuan...'} />
+                        )}
                         {msg.phase === 'thinking' && <TypingIndicator label="Menyusun jawaban..." />}
                         {msg.phase === 'streaming' && (
                           <span className="md-body">
-                            <Markdown>{msg.content}</Markdown>
+                            <Markdown onCite={(ref) => focusSource(msg.id, ref)}>{msg.content}</Markdown>
                             <span className="stream-cursor" />
                           </span>
                         )}
                       </>
                     ) : msg.content ? (
-                      <Markdown>{msg.content}</Markdown>
+                      <Markdown onCite={(ref) => focusSource(msg.id, ref)}>{msg.content}</Markdown>
                     ) : (
                       <TypingIndicator label="Mencari di basis pengetahuan..." />
                     )}
 
-                    {/* Sumber */}
+                    {/* Sumber & sitasi */}
                     {msg.sources && msg.sources.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-100">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2 flex items-center gap-1">
-                          <ExternalLink size={12} /> Sumber ({msg.sources.length})
-                        </p>
-                        <div className="flex flex-col gap-1.5">
-                          {msg.sources.map((s, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center justify-between gap-2 text-xs bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5"
-                            >
-                              <div className="min-w-0">
-                                <p className="font-medium text-slate-700 truncate">{s.title}</p>
-                                <p className="text-slate-400 truncate">
-                                  {[s.section, s.page ? `hal. ${s.page}` : null]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                                </p>
+                        {(() => {
+                          const usedRefs = new Set(
+                            (msg.citations || []).filter((c) => c.used).map((c) => c.ref)
+                          );
+                          const webCount = msg.sources.filter((s) => s.origin === 'web').length;
+                          const docCount = msg.sources.length - webCount;
+
+                          return (
+                            <>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2 flex flex-wrap items-center gap-1.5">
+                                <ExternalLink size={12} /> Sumber ({msg.sources.length})
+                                {docCount > 0 && (
+                                  <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+                                    {docCount} dokumen
+                                  </span>
+                                )}
+                                {webCount > 0 && (
+                                  <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                                    {webCount} web resmi
+                                  </span>
+                                )}
+                                {msg.sources.some((s) => s.weak) && (
+                                  <span
+                                    className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700"
+                                    title="Sumber ini hanya menyinggung topik (relevansi rendah) — jawaban tidak bersandar padanya"
+                                  >
+                                    relevansi rendah
+                                  </span>
+                                )}
+                              </p>
+                              <div className="flex flex-col gap-1.5">
+                                {msg.sources.map((s, i) => {
+                                  const ref = s.ref || i + 1;
+                                  const isUsed = usedRefs.has(ref);
+                                  const isActive = activeSource === `${msg.id}:${ref}`;
+                                  const meta = [
+                                    s.origin === 'web' ? 'Situs resmi' : 'Dokumen internal',
+                                    s.origin === 'web' ? s.domain : s.section,
+                                    s.origin === 'web' ? null : s.page ? `hal. ${s.page}` : null
+                                  ].filter(Boolean);
+
+                                  return (
+                                    <div
+                                      key={`${msg.id}-${ref}`}
+                                      id={`src-${msg.id}-${ref}`}
+                                      className={`source-item ${isActive ? 'is-active' : ''} ${
+                                        isUsed ? 'is-used' : ''
+                                      }`}
+                                    >
+                                      <div className="flex items-start gap-2 min-w-0">
+                                        <span className="source-ref">{ref}</span>
+                                        <div className="min-w-0">
+                                          {s.url ? (
+                                            <a
+                                              href={s.url}
+                                              target="_blank"
+                                              rel="noreferrer noopener"
+                                              className="block truncate font-medium text-navy-900 hover:text-brand-600 hover:underline"
+                                              title={s.url}
+                                            >
+                                              {s.title}
+                                            </a>
+                                          ) : (
+                                            <p className="truncate font-medium text-slate-700">
+                                              {s.title}
+                                            </p>
+                                          )}
+                                          <p className="truncate text-[11px] text-slate-400">
+                                            {meta.join(' · ')}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <span
+                                        className={`shrink-0 px-1.5 py-0.5 rounded-md border text-[11px] font-medium ${scoreColor(
+                                          s.score
+                                        )}`}
+                                      >
+                                        {Math.round((s.score || 0) * 100)}%
+                                      </span>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                              <span
-                                className={`shrink-0 px-1.5 py-0.5 rounded-md border text-[11px] font-medium ${scoreColor(
-                                  s.score
-                                )}`}
-                              >
-                                {Math.round(s.score * 100)}%
-                              </span>
-                            </div>
-                          ))}
-                        </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
@@ -615,6 +733,21 @@ export default function Chat() {
                       >
                         <ThumbsDown size={14} />
                       </button>
+                      {msg.route && (
+                        <span
+                          className="text-[11px] flex items-center gap-1 text-slate-400"
+                          title={`Kanal sumber: ${
+                            msg.route.useWeb
+                              ? msg.route.ragChunks
+                                ? 'dokumen internal + situs resmi'
+                                : 'situs resmi'
+                              : 'dokumen internal'
+                          }`}
+                        >
+                          {msg.route.useWeb ? <Globe size={12} /> : <FileText size={12} />}
+                          {msg.route.useWeb ? (msg.route.ragChunks ? 'RAG + Web' : 'Web') : 'RAG'}
+                        </span>
+                      )}
                       {msg.model && (
                         <span className="ml-auto text-[11px] flex items-center gap-1 text-slate-400">
                           <ShieldCheck size={12} /> {msg.model}

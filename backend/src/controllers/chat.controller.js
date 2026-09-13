@@ -108,6 +108,9 @@ const ask = async (req, res, next) => {
       data: {
         answer: result.answer,
         sources: result.sources,
+        // Sitasi bernomor [n] + status pemakaian tiap sumber (pipeline AI Agent)
+        citations: result.citations || [],
+        route: result.agent?.route || null,
         session_id: sessionId,
         model: result.modelUsed
       }
@@ -141,6 +144,7 @@ const streamChat = async (req, res, next) => {
     const startedAt = Date.now();
     let fullAnswer = '';
     let sources = [];
+    let citations = [];
     let modelUsed = '';
     let tokensUsed = 0;
 
@@ -148,12 +152,19 @@ const streamChat = async (req, res, next) => {
       if (evt.type === 'sources') {
         sources = evt.sources;
         send({ type: 'sources', sources });
+      } else if (evt.type === 'plan') {
+        // Tahap perencanaan AI Agent (routing RAG/Web) — opsional untuk UI
+        send({ type: 'plan', route: evt.route, queries: evt.queries, reason: evt.reason });
       } else if (evt.type === 'token') {
         fullAnswer += evt.text;
         send({ type: 'token', text: evt.text });
+      } else if (evt.type === 'citations') {
+        citations = evt.citations;
+        send({ type: 'citations', citations });
       } else if (evt.type === 'done') {
         modelUsed = evt.model;
-        send({ type: 'done', model: evt.model, session_id: sessionId });
+        if (evt.citations) citations = evt.citations;
+        send({ type: 'done', model: evt.model, session_id: sessionId, citations });
       }
     }
 

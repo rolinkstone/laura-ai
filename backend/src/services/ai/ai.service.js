@@ -1,48 +1,31 @@
 const { searchChunks } = require('../vectorSearchService');
 const { hasPromptInjection, hardenSystemPrompt } = require('./promptGuard');
-const ninerouterProvider = require('./ninerouter.provider');
 const llmConfig = require('../llmConfigService');
+const {
+  PROVIDERS,
+  getProviderOrder,
+  getProvider,
+  isProviderConfigured,
+  getProviderModelName,
+  summarizeProviderError
+} = require('./llmRuntime');
+const { buildLegacySystemPrompt } = require('./agent/prompts');
+const { config: agentConfig } = require('./agent/config');
+const { runAgent, runAgentStream } = require('./agent');
 
 /**
- * RAG Engine — orchestrator.
+ * RAG Engine — orchestrator LAURA.
  *
- * Alur:
- *   Pertanyaan → embedding → vector search PostgreSQL → ambil chunk relevan
- *   → bangun context (SYSTEM + SOURCE) → LLM → jawaban + sources
+ * Terdapat DUA jalur:
+ *  1. AI Agent (default, AGENT_ENABLED=true)
+ *     Pertanyaan → PLANNER (LLM) → RAG ∥ WEB SEARCH → SOURCE SELECTION
+ *     → RERANKER → LLM → jawaban + CITATION/SOURCE.
+ *     Lihat `./agent/index.js` dan `backend/docs/agent-pipeline.md`.
+ *  2. Legacy (AGENT_ENABLED=false)
+ *     Pertanyaan → embedding → vector search → context → LLM → jawaban.
  *
- * Provider tunggal: 9Router (AI gateway OpenAI-compatible).
- * Satu API key 9Router merutekan ke banyak model/provider via gateway.
+ * Provider tunggal: 9Router (AI gateway OpenAI-compatible) via `llmRuntime.js`.
  */
-
-const PROVIDERS = {
-  ninerouter: ninerouterProvider
-};
-
-/**
- * Urutan provider dari pengaturan runtime (dashboard) / env AI_PROVIDER.
- * Dengan provider tunggal, selalu mengembalikan [ninerouterProvider].
- */
-const getProviderOrder = () => {
-  const names = llmConfig.getProviderOrder();
-  const ordered = [];
-  for (const n of names) {
-    const p = PROVIDERS[n.toLowerCase()];
-    if (p && !ordered.includes(p)) ordered.push(p);
-  }
-  if (ordered.length === 0) ordered.push(ninerouterProvider);
-  return ordered;
-};
-
-// Kompatibilitas lama
-const getProvider = () => getProviderOrder()[0];
-
-const isProviderConfigured = (provider) => {
-  if (llmConfig.isProviderConfigured(provider.name)) return true;
-  // Gateway 9Router lokal tanpa API key (opsional, untuk deployment lokal)
-  return provider.name === 'ninerouter' && !!process.env.NINEROUTER_BASE_URL;
-};
-
-const getProviderModelName = (provider) => llmConfig.getModel(provider.name) || 'kr/auto';
 
 /**
  * Bangun blok context dari chunk hasil vector search.
@@ -70,18 +53,7 @@ const buildContext = (chunks) => {
  * @param {string} context
  * @returns {string}
  */
-const buildSystemPrompt = (context) => {
-  return `Anda adalah LAURA (Asisten Layanan Aduan & Informasi Obat dan Makanan), asisten virtual resmi Balai Besar/Balai POM Palangka Raya.
-
-Instruksi:
-1. Gunakan HANYA informasi dari sumber yang diberikan di bawah untuk menjawab pertanyaan.
-2. Jika jawaban tidak tersedia pada sumber, katakan bahwa Anda tidak memiliki informasi tersebut. JANGAN mengarang atau menebak.
-3. Jawab dalam Bahasa Indonesia yang jelas, ringkas, sopan, dan ramah.
-4. Sebutkan referensi halaman/sumber bila tersedia.
-
-=== SUMBER ===
-${context}`;
-};
+const buildSystemPrompt = (context) => buildLegacySystemPrompt(context);
 
 // ====================== Skrip LAURA (menu) ======================
 
@@ -132,11 +104,11 @@ const getScriptedResponse = (question) => {
 };
 
 /**
- * Jalankan pipeline RAG (non-streaming) dengan fallback antar provider.
+ * Pipeline RAG LEGACY (non-streaming) — dipakai saat AGENT_ENABLED=false.
  * @param {{question: string, limit?: number, categoryId?: number|null}} param
  * @returns {Promise<{answer: string, sources: Array, chunks: Array, modelUsed: string, tokensUsed: number, provider: string|null}>}
  */
-const ask = async ({ question, limit = null, categoryId = null }) => {
+const askLegacy = async ({ question, limit = null, categoryId = null }) => {
   // Respons menu LAURA tanpa RAG/LLM
   const scripted = getScriptedResponse(question);
   if (scripted) {
@@ -216,17 +188,38 @@ const ask = async ({ question, limit = null, categoryId = null }) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Rangkum error provider LLM jadi pesan singkat yang jelas.
+ * Entry point utama (non-streaming).
+ *
+ *  - Respons menu/skrip LAURA  : dijawab langsung tanpa RAG/LLM.
+ *  - AGENT_ENABLED=true        : pipeline AI Agent (RAG + Web Search +
+ *                                Source Selection + Reranker + Citation).
+ *  - AGENT_ENABLED=false       : pipeline RAG legacy.
+ *
+ * @param {{question: string, limit?: number, categoryId?: number|null}} param
+ * @returns {Promise<object>} jawaban + sources + citations
  */
-const summarizeProviderError = (err) => {
-  if (!err) return '';
-  const msg = String(err.message || '');
-  const m = msg.match(/API error (\d{3})/);
-  const status = m ? m[1] : null;
-  if (status === '429') return 'kuota/rate limit provider AI habis (429) — periksa billing/kuota';
-  if (status === '401' || status === '403') return 'API key provider AI tidak valid';
-  if (status) return `provider AI error ${status}`;
-  return msg.split('\n')[0].slice(0, 120) || 'kesalahan provider AI';
+const ask = async ({ question, limit = null, categoryId = null }) => {
+  const scripted = getScriptedResponse(question);
+  if (scripted) {
+    return {
+      answer: scripted.text,
+      sources: [],
+      citations: [],
+      chunks: [],
+      modelUsed: 'laura',
+      tokensUsed: 0,
+      injected: false,
+      provider: null,
+      agent: null
+    };
+  }
+
+  if (agentConfig().enabled) {
+    return runAgent({ question, limit, categoryId });
+  }
+
+  const legacy = await askLegacy({ question, limit, categoryId });
+  return { ...legacy, citations: [], agent: null };
 };
 
 const splitIntoChunks = (text, size = 40) => {
@@ -236,9 +229,7 @@ const splitIntoChunks = (text, size = 40) => {
 };
 
 /**
- * Pipeline RAG versi streaming (SSE) dengan fallback antar provider.
- * Fallback hanya jika provider gagal SEBELUM mulai menghasilkan token
- * (mis. rate limit/429) — output streaming tidak boleh terpotong.
+ * Pipeline RAG LEGACY versi streaming (SSE) — dipakai saat AGENT_ENABLED=false.
  *
  * Menghasilkan event:
  *  - { type: 'sources', sources }
@@ -248,7 +239,7 @@ const splitIntoChunks = (text, size = 40) => {
  * @param {{question: string, limit?: number, categoryId?: number|null}} param
  * @returns {AsyncGenerator<object>}
  */
-async function* askStream({ question, limit = null, categoryId = null }) {
+async function* askStreamLegacy({ question, limit = null, categoryId = null }) {
   // Respons menu LAURA tanpa RAG/LLM
   const scripted = getScriptedResponse(question);
   if (scripted) {
@@ -321,9 +312,42 @@ async function* askStream({ question, limit = null, categoryId = null }) {
   yield { type: 'done', model };
 }
 
+/**
+ * Entry point streaming (SSE).
+ *
+ *  - Respons menu/skrip LAURA : dikirim sebagai token tanpa RAG/LLM.
+ *  - AGENT_ENABLED=true       : pipeline AI Agent (event: plan → sources →
+ *                               token → citations → done).
+ *  - AGENT_ENABLED=false      : pipeline RAG legacy (sources → token → done).
+ *
+ * @param {{question: string, limit?: number, categoryId?: number|null}} param
+ * @returns {AsyncGenerator<object>}
+ */
+async function* askStream({ question, limit = null, categoryId = null }) {
+  const scripted = getScriptedResponse(question);
+  if (scripted) {
+    yield { type: 'sources', sources: [] };
+    for (const piece of splitIntoChunks(scripted.text, 40)) {
+      yield { type: 'token', text: piece };
+      await sleep(15);
+    }
+    yield { type: 'done', model: 'laura', citations: [] };
+    return;
+  }
+
+  if (agentConfig().enabled) {
+    yield* runAgentStream({ question, limit, categoryId });
+    return;
+  }
+
+  yield* askStreamLegacy({ question, limit, categoryId });
+}
+
 module.exports = {
   ask,
   askStream,
+  askLegacy,
+  askStreamLegacy,
   buildContext,
   buildSystemPrompt,
   getProvider,
@@ -331,5 +355,6 @@ module.exports = {
   isProviderConfigured,
   getProviderModelName,
   getScriptedResponse,
+  summarizeProviderError,
   PROVIDERS
 };

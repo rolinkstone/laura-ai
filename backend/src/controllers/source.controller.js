@@ -1,4 +1,18 @@
 const { pool } = require('../config/db');
+const webSearchConfig = require('../services/webSearchConfigService');
+
+/**
+ * Ruang lingkup pencarian web diturunkan dari URL pada daftar Sumber ini
+ * (lihat `webSearchConfigService`). Segarkan cache setelah data berubah agar
+ * domain baru langsung dipakai pada chat berikutnya.
+ */
+const refreshWebScope = async () => {
+  try {
+    await webSearchConfig.refresh();
+  } catch (err) {
+    console.warn(`[sources] gagal menyegarkan ruang lingkup web: ${err.message}`);
+  }
+};
 
 /**
  * GET /api/sources
@@ -37,6 +51,7 @@ const createSource = async (req, res, next) => {
       'INSERT INTO sources (name, type, url, description) VALUES (?, ?, ?, ?)',
       [name, type, url, description]
     );
+    await refreshWebScope();
     res.status(201).json({
       success: true,
       message: 'Sumber berhasil dibuat',
@@ -63,6 +78,7 @@ const updateSource = async (req, res, next) => {
       'UPDATE sources SET name = ?, type = ?, url = ?, description = ? WHERE id = ?',
       [name, type, url, description, id]
     );
+    await refreshWebScope();
     res.json({ success: true, message: 'Sumber berhasil diperbarui' });
   } catch (err) {
     next(err);
@@ -78,6 +94,7 @@ const deleteSource = async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Sumber tidak ditemukan' });
     }
+    await refreshWebScope();
     res.json({ success: true, message: 'Sumber berhasil dihapus' });
   } catch (err) {
     next(err);

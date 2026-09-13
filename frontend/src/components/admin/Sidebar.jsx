@@ -22,6 +22,7 @@ const NAV = [
   { href: '/admin/dokumen', label: 'Dokumen', icon: FileText },
   { href: '/admin/faq', label: 'FAQ', icon: HelpCircle },
   { href: '/admin/kategori', label: 'Kategori', icon: FolderTree },
+  // Sumber = daftar link referensi + ruang lingkup pencarian web LAURA
   { href: '/admin/sumber', label: 'Sumber', icon: Link2 },
   { section: 'AI' },
   { href: '/admin/ai', label: 'Model & RAG', icon: Cpu, adminOnly: true },

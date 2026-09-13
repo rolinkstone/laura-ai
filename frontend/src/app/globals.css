@@ -143,3 +143,57 @@ body {
 .msg-in {
   animation: msgIn 0.25s ease-out;
 }
+
+/* ===== Sitasi & daftar sumber (pipeline AI Agent) ===== */
+.cite-chip {
+  @apply inline-flex items-center justify-center align-super;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.22rem;
+  margin: 0 1px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+.cite-chip:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.source-item {
+  @apply flex items-center justify-between gap-2 text-xs rounded-lg border px-2.5 py-1.5 transition;
+  background: #f8fafc;
+  border-color: #eef2f7;
+}
+.source-item.is-used {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.source-item.is-active {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  box-shadow: 0 0 0 3px rgba(252, 211, 77, 0.25);
+}
+
+.source-ref {
+  @apply shrink-0 inline-flex items-center justify-center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 9999px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+.source-item.is-used .source-ref {
+  background: #bbf7d0;
+  color: #15803d;
+}

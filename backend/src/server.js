@@ -2,6 +2,7 @@ require('dotenv').config();
 const app = require('./app');
 const { testConnection } = require('./config/db');
 const llmConfig = require('./services/llmConfigService');
+const webSearchConfig = require('./services/webSearchConfigService');
 
 const PORT = Number(process.env.PORT) || 5005;
 // HOST default 0.0.0.0 (semua interface). Set HOST=127.0.0.1 agar server
@@ -38,6 +39,14 @@ const start = async () => {
     console.log('⚙️  Konfigurasi LLM runtime dimuat');
   } catch (err) {
     console.warn('⚠️ Gagal memuat konfigurasi LLM runtime:', err.message);
+  }
+
+  // Muat lingkup sumber web terpercaya (dari tabel settings, fallback .env)
+  try {
+    await webSearchConfig.loadConfig();
+    console.log('⚙️  Lingkup sumber web (link terpercaya) dimuat');
+  } catch (err) {
+    console.warn('⚠️ Gagal memuat lingkup sumber web:', err.message);
   }
 
   app.listen(PORT, HOST, () => {

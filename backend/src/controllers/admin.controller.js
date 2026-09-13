@@ -1,5 +1,13 @@
 const { pool } = require('../config/db');
 const llmConfig = require('../services/llmConfigService');
+const webSearchConfig = require('../services/webSearchConfigService');
+const {
+  getScope,
+  isOfficialUrl,
+  DEFAULT_ALLOWED_DOMAINS
+} = require('../services/ai/agent/officialSources');
+const { config: agentConfig } = require('../services/ai/agent/config');
+const { resolveProvider } = require('../services/ai/agent/webSearch.service');
 
 /**
  * GET /api/admin/stats
@@ -103,4 +111,111 @@ const updateLlmConfig = async (req, res, next) => {
   }
 };
 
-module.exports = { getStats, getConfig, getLlmConfig, updateLlmConfig };
+/**
+ * Ringkasan lingkup sumber web (dipakai GET & POST /admin/web-search-config).
+ * Menggabungkan pengaturan dashboard + bawaan + .env agar admin melihat
+ * daftar domain yang BENAR-BENAR berlaku saat ini.
+ */
+const buildWebSearchPayload = () => {
+  const cfg = webSearchConfig.getConfig();
+  const agent = agentConfig();
+  const scope = getScope();
+  const listEnv = (value) =>
+    String(value || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  return {
+    // Dikelola dari dashboard
+    domains: cfg.domains || [],
+    indexUrls: cfg.indexUrls || [],
+    strictScope: !!cfg.strictScope,
+    // Domain otomatis dari daftar Sumber (menu Sumber) + status pemakaiannya
+    useSources: cfg.useSources !== false,
+    registeredDomains: cfg.registeredDomains || [],
+    // Nilai efektif (yang sedang dipakai pipeline)
+    allowGovSuffix: scope.suffixes.includes('.go.id'),
+    officialOnly: agent.web.officialOnly,
+    // Asal nilai: 'dashboard' (diatur admin) atau 'env' (mengikuti .env)
+    source: {
+      allowGovSuffix: cfg.allowGovSuffix === null ? 'env' : 'dashboard',
+      officialOnly: cfg.officialOnly === null ? 'env' : 'dashboard'
+    },
+    // Informasi pendukung untuk UI
+    defaultDomains: DEFAULT_ALLOWED_DOMAINS,
+    envDomains: listEnv(process.env.WEB_SEARCH_ALLOWED_DOMAINS),
+    envIndexUrls: listEnv(process.env.WEB_SEARCH_INDEX_URLS),
+    effective: scope, // { domains, suffixes, searchDomains }
+    provider: resolveProvider(),
+    webSearchEnabled: agent.web.enabled,
+    resultsPerQuery: agent.web.results,
+    fetchTop: agent.web.fetchTop
+  };
+};
+
+/**
+ * GET /api/admin/web-search-config
+ * Daftar link/domain terpercaya yang boleh dipakai saat mencari di web.
+ */
+const getWebSearchConfig = async (req, res, next) => {
+  try {
+    res.json({ success: true, data: buildWebSearchPayload() });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/admin/web-search-config
+ * Simpan daftar link terpercaya. Berlaku LANGSUNG tanpa restart backend.
+ * Body: { domains?: string[], indexUrls?: string[], allowGovSuffix?: boolean,
+ *         officialOnly?: boolean, strictScope?: boolean, reset?: boolean }
+ */
+const updateWebSearchConfig = async (req, res, next) => {
+  try {
+    await webSearchConfig.updateConfig(req.body || {});
+    res.json({
+      success: true,
+      message: 'Link terpercaya disimpan & langsung berlaku (tanpa restart).',
+      data: buildWebSearchPayload()
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/admin/web-search-config/check
+ * Uji sebuah URL: apakah termasuk lingkup yang boleh dipakai?
+ * Body: { url }
+ */
+const checkWebSearchUrl = async (req, res, next) => {
+  try {
+    const url = String(req.body?.url || '').trim();
+    const allowed = isOfficialUrl(url);
+    res.json({
+      success: true,
+      data: {
+        url,
+        allowed,
+        reason: allowed
+          ? 'termasuk lingkup (diizinkan)'
+          : 'di luar lingkup — tambahkan domainnya ke daftar link terpercaya',
+        scope: getScope()
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  getStats,
+  getConfig,
+  getLlmConfig,
+  updateLlmConfig,
+  getWebSearchConfig,
+  updateWebSearchConfig,
+  checkWebSearchUrl
+};
