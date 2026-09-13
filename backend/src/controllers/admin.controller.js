@@ -112,6 +112,222 @@ const updateLlmConfig = async (req, res, next) => {
 };
 
 /**
+ * GET /api/admin/llm-models
+ * Daftar model yang TERDAFTAR di gateway (9Router `/v1/models`).
+ *
+ * Penting: 9Router hanya bisa merutekan model yang ada di daftar ini DAN
+ * provider-nya punya kredensial aktif. Model di luar daftar akan ditolak
+ * (404 model_not_found / "No active credentials for provider: …").
+ *
+ * Selalu membalas 200 dengan `error` terisi bila gateway tidak bisa dihubungi,
+ * supaya UI bisa menampilkan penyebabnya.
+ */
+const listLlmModels = async (req, res, next) => {
+  const baseUrl = llmConfig.getBaseUrl('ninerouter').replace(/\/$/, '');
+  const configuredModel = llmConfig.getModel('ninerouter');
+
+  try {
+    const apiKey = llmConfig.getApiKey('ninerouter');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+
+    let response;
+    try {
+      response = await fetch(`${baseUrl}/models`, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const payload = await response.json().catch(() => null);
+    const raw = Array.isArray(payload?.data)
+      ? payload.data
+      : Array.isArray(payload?.models)
+        ? payload.models
+        : [];
+    const models = raw
+      .map((m) => (typeof m === 'string' ? m : m?.id || m?.name))
+      .filter(Boolean)
+      .sort();
+
+    res.json({
+      success: true,
+      data: {
+        baseUrl,
+        configuredModel,
+        count: models.length,
+        models,
+        error: response.ok ? null : payload?.error?.message || `HTTP ${response.status}`
+      }
+    });
+  } catch (err) {
+    res.json({
+      success: true,
+      data: {
+        baseUrl,
+        configuredModel,
+        count: 0,
+        models: [],
+        error: err.name === 'AbortError' ? 'Gateway tidak merespons (timeout 15 detik)' : err.message
+      }
+    });
+  }
+};
+
+/**
+ * Uji satu model ke gateway dengan prompt sangat pendek.
+ * @param {string} model
+ * @returns {Promise<{model: string, ok: boolean, answer?: string, error?: string, ms: number}>}
+ */
+const runModelTest = async (model) => {
+  const startedAt = Date.now();
+  try {
+    const provider = require('../services/ai/ninerouter.provider');
+    const out = await provider.chat({
+      system: 'Balas satu kata saja.',
+      user: 'ping',
+      maxTokens: 8,
+      temperature: 0,
+      timeoutMs: 25000,
+      model
+    });
+    return {
+      model: out.model || model,
+      ok: true,
+      answer: String(out.text || '').slice(0, 80),
+      tokensUsed: out.tokensUsed || 0,
+      ms: Date.now() - startedAt
+    };
+  } catch (err) {
+    return { model, ok: false, error: shortLlmError(err.message), ms: Date.now() - startedAt };
+  }
+};
+
+/** Ringkas pesan error gateway agar mudah dibaca di UI. */
+const shortLlmError = (message) =>
+  String(message || '')
+    .replace(/\s+/g, ' ')
+    .replace(/^9Router API error /, 'HTTP ')
+    .slice(0, 160);
+
+/**
+ * Ambil daftar model dari gateway (dipakai scan).
+ * @returns {Promise<string[]>}
+ */
+const fetchGatewayModels = async () => {
+  const baseUrl = llmConfig.getBaseUrl('ninerouter').replace(/\/$/, '');
+  const apiKey = llmConfig.getApiKey('ninerouter');
+  const res = await fetch(`${baseUrl}/models`, {
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    signal: AbortSignal.timeout(15000)
+  });
+  const payload = await res.json().catch(() => ({}));
+  const raw = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
+  return raw.map((m) => (typeof m === 'string' ? m : m?.id || m?.name)).filter(Boolean);
+};
+
+/**
+ * Susun kandidat uji: satu varian DASAR per penyedia (prefix),
+ * yaitu yang tidak berakhiran -thinking/-agentic (lebih cepat & lebih murah).
+ * @param {string[]} models
+ * @param {number} max
+ * @returns {string[]}
+ */
+const sampleModelsPerProvider = (models, max = 12) => {
+  const byPrefix = new Map();
+  for (const id of models) {
+    const prefix = id.includes('/') ? id.split('/')[0] : '(tanpa-prefix)';
+    if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
+    byPrefix.get(prefix).push(id);
+  }
+  const picked = [];
+  for (const [, list] of byPrefix) {
+    picked.push(list.find((x) => !/thinking|agentic/.test(x)) || list[0]);
+  }
+  return picked.slice(0, max);
+};
+
+/**
+ * POST /api/admin/llm-test
+ * Uji satu model (tanpa menyimpan).
+ * Body: { model?: string }
+ */
+const testLlmModel = async (req, res, next) => {
+  try {
+    if (!llmConfig.isEnabled()) {
+      return res.status(400).json({ success: false, message: 'LLM sedang dinonaktifkan di pengaturan' });
+    }
+    const model = String(req.body?.model || '').trim() || llmConfig.getModel('ninerouter');
+    res.json({ success: true, data: await runModelTest(model) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/admin/llm-test-batch
+ * Uji BANYAK model sekaligus untuk mencari model yang bisa dipakai
+ * SEBELUM dipasang sebagai model aktif.
+ *
+ * Body:
+ *   { models?: string[], mode?: 'sample'|'selected', limit?: number }
+ *   - `sample` (default): satu varian dasar per penyedia dari daftar gateway
+ *   - `selected`: hanya model yang dikirim pada `models`
+ *
+ * Dijalankan berurutan (bukan paralel) agar tidak memicu rate-limit gateway.
+ */
+const testLlmBatch = async (req, res, next) => {
+  try {
+    if (!llmConfig.isEnabled()) {
+      return res.status(400).json({ success: false, message: 'LLM sedang dinonaktifkan di pengaturan' });
+    }
+
+    const limit = Math.max(1, Math.min(Number(req.body?.limit) || 12, 12));
+    const requested = Array.isArray(req.body?.models) ? req.body.models.map((m) => String(m).trim()).filter(Boolean) : [];
+    const mode = req.body?.mode === 'selected' || requested.length > 0 ? 'selected' : 'sample';
+
+    let targets = requested.slice(0, limit);
+    let gatewayError = null;
+
+    if (mode === 'sample') {
+      try {
+        targets = sampleModelsPerProvider(await fetchGatewayModels(), limit);
+      } catch (err) {
+        gatewayError = `Gagal membaca daftar model gateway: ${err.message}`;
+      }
+    }
+
+    if (targets.length === 0) {
+      return res.json({
+        success: true,
+        data: { mode, tested: 0, working: [], results: [], error: gatewayError || 'Tidak ada model untuk diuji' }
+      });
+    }
+
+    const results = [];
+    for (const model of targets) {
+      results.push(await runModelTest(model));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        mode,
+        tested: results.length,
+        working: results.filter((r) => r.ok).map((r) => r.model),
+        results,
+        error: gatewayError
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * Ringkasan lingkup sumber web (dipakai GET & POST /admin/web-search-config).
  * Menggabungkan pengaturan dashboard + bawaan + .env agar admin melihat
  * daftar domain yang BENAR-BENAR berlaku saat ini.
@@ -215,6 +431,9 @@ module.exports = {
   getConfig,
   getLlmConfig,
   updateLlmConfig,
+  listLlmModels,
+  testLlmModel,
+  testLlmBatch,
   getWebSearchConfig,
   updateWebSearchConfig,
   checkWebSearchUrl

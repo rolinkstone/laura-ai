@@ -338,6 +338,7 @@ const runAgent = async ({ question, limit = null, categoryId = null }) => {
     chunks: collected.ragChunks,
     modelUsed,
     tokensUsed,
+    llmError,
     injected,
     provider: usedProvider,
     agent: {
@@ -384,6 +385,7 @@ async function* runAgentStream({ question, limit = null, categoryId = null }) {
   let fullAnswer = '';
   let model = null;
   let providerName = null;
+  let llmError = null;
   const llmStartedAt = Date.now();
 
   try {
@@ -410,7 +412,8 @@ async function* runAgentStream({ question, limit = null, categoryId = null }) {
     }
     console.warn(`[agent:answer-stream] gagal: ${err.message}`);
     const fallback = buildFallbackAnswer({ err, chunks: collected.ragChunks });
-    model = err.code === 'LLM_DISABLED' ? 'disabled' : 'not-configured';
+    model = err.code === 'LLM_DISABLED' ? 'disabled' : 'error';
+    llmError = err.code === 'LLM_DISABLED' ? 'LLM dinonaktifkan' : summarizeProviderError(err.cause || err);
     for (const piece of splitIntoChunks(fallback, 40)) {
       fullAnswer += piece;
       yield { type: 'token', text: piece };
@@ -442,6 +445,7 @@ async function* runAgentStream({ question, limit = null, categoryId = null }) {
     type: 'done',
     model,
     provider: providerName,
+    llmError,
     sources: collected.sources,
     citations: cited.citations,
     route: collected.route,

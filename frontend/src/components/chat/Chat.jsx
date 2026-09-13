@@ -26,7 +26,8 @@ import {
   Rocket,
   Accessibility,
   Cpu,
-  Globe
+  Globe,
+  AlertCircle
 } from 'lucide-react';
 import Markdown from './Markdown';
 import {
@@ -173,6 +174,7 @@ export default function Chat() {
                       phase: null,
                       phaseLabel: null,
                       model: evt.model,
+                      llmError: evt.llm_error || null,
                       citations: evt.citations || msg.citations,
                       route: evt.route || msg.route
                     }
@@ -746,6 +748,14 @@ export default function Chat() {
                         >
                           {msg.route.useWeb ? <Globe size={12} /> : <FileText size={12} />}
                           {msg.route.useWeb ? (msg.route.ragChunks ? 'RAG + Web' : 'Web') : 'RAG'}
+                        </span>
+                      )}
+                      {msg.llmError && (
+                        <span
+                          className="text-[11px] flex items-center gap-1 text-rose-600"
+                          title={`Model AI gagal menjawab: ${msg.llmError}`}
+                        >
+                          <AlertCircle size={12} /> {msg.llmError}
                         </span>
                       )}
                       {msg.model && (

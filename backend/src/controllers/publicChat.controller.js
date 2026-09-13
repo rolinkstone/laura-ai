@@ -85,6 +85,7 @@ const ask = async (req, res, next) => {
         // Sitasi bernomor [n] + status pemakaian tiap sumber (pipeline AI Agent)
         citations: result.citations || [],
         route: result.agent?.route || null,
+        llm_error: result.llmError || null,
         session_id: sessionId,
         model: result.modelUsed
       }
@@ -119,6 +120,7 @@ const stream = async (req, res) => {
     let sources = [];
     let citations = [];
     let modelUsed = '';
+    let llmError = null;
 
     for await (const evt of askAIStream({ question: String(question).trim(), limit, categoryId: category_id })) {
       if (evt.type === 'sources') {
@@ -136,7 +138,8 @@ const stream = async (req, res) => {
       } else if (evt.type === 'done') {
         modelUsed = evt.model;
         if (evt.citations) citations = evt.citations;
-        send({ type: 'done', model: evt.model, session_id: sessionId, citations });
+        if (evt.llmError) llmError = evt.llmError;
+        send({ type: 'done', model: evt.model, session_id: sessionId, citations, llm_error: llmError });
       }
     }
 

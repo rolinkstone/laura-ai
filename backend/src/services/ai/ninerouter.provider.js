@@ -24,8 +24,8 @@ const getApiKeyValue = () => getApiKey('ninerouter') || process.env.NINEROUTER_A
 // Base URL gateway 9Router (dari pengaturan runtime/dashboard, fallback env & default).
 const getBaseUrl = () => getConfiguredBaseUrl('ninerouter').replace(/\/$/, '');
 
-const buildBody = ({ system, user }, { stream, maxTokens = null, temperature = null }) => ({
-  model: getModelName(),
+const buildBody = ({ system, user }, { stream, maxTokens = null, temperature = null, model = null }) => ({
+  model: model || getModelName(),
   messages: [
     { role: 'system', content: system },
     { role: 'user', content: user }
@@ -40,9 +40,9 @@ const buildBody = ({ system, user }, { stream, maxTokens = null, temperature = n
  *
  * @param {{system: string, user: string}} param
  * @param {{stream: boolean, maxTokens?: number|null, temperature?: number|null,
- *          timeoutMs?: number|null}} options
+ *          timeoutMs?: number|null, model?: string|null}} options
  */
-const fetchStream = async ({ system, user }, { stream, maxTokens = null, temperature = null, timeoutMs = null }) => {
+const fetchStream = async ({ system, user }, { stream, maxTokens = null, temperature = null, timeoutMs = null, model = null }) => {
   const apiKey = getApiKeyValue();
   if (!apiKey) {
     throw new Error('NINEROUTER_API_KEY belum dikonfigurasi (di dashboard AI atau .env)');
@@ -58,7 +58,7 @@ const fetchStream = async ({ system, user }, { stream, maxTokens = null, tempera
     res = await fetch(`${getBaseUrl()}/chat/completions`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(buildBody({ system, user }, { stream, maxTokens, temperature })),
+      body: JSON.stringify(buildBody({ system, user }, { stream, maxTokens, temperature, model })),
       ...(timeout ? { signal: AbortSignal.timeout(timeout) } : {})
     });
   } catch (err) {
@@ -81,8 +81,9 @@ const fetchStream = async ({ system, user }, { stream, maxTokens = null, tempera
  * @param {{system: string, user: string}} param
  * @returns {Promise<{text: string, model: string, tokensUsed: number}>}
  */
-const chat = async ({ system, user, maxTokens = null, temperature = null, timeoutMs = null }) => {
-  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs });
+const chat = async ({ system, user, maxTokens = null, temperature = null, timeoutMs = null, model = null }) => {
+  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs, model });
+  const usedModel = model || getModelName();
   const decoder = new TextDecoder();
   let buffer = '';
   let text = '';
@@ -112,9 +113,9 @@ const chat = async ({ system, user, maxTokens = null, temperature = null, timeou
     }
   }
 
-  if (!text) throw new Error('9Router mengembalikan jawaban kosong');
+  if (!text) throw new Error(`9Router mengembalikan jawaban kosong (model: ${usedModel})`);
 
-  return { text, model: getModelName(), tokensUsed };
+  return { text, model: usedModel, tokensUsed };
 };
 
 /**
@@ -123,8 +124,8 @@ const chat = async ({ system, user, maxTokens = null, temperature = null, timeou
  * @param {{system: string, user: string}} param
  * @returns {AsyncGenerator<string>}
  */
-async function* streamTokens({ system, user, maxTokens = null, temperature = null, timeoutMs = null }) {
-  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs });
+async function* streamTokens({ system, user, maxTokens = null, temperature = null, timeoutMs = null, model = null }) {
+  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs, model });
   const decoder = new TextDecoder();
   let buffer = '';
 

@@ -4,6 +4,9 @@ const {
   getConfig,
   getLlmConfig,
   updateLlmConfig,
+  listLlmModels,
+  testLlmModel,
+  testLlmBatch,
   getWebSearchConfig,
   updateWebSearchConfig,
   checkWebSearchUrl
@@ -29,6 +32,24 @@ router.get('/stats', getStats);
 router.get('/config', getConfig);
 router.get('/llm-config', getLlmConfig);
 router.post('/llm-config', llmUpdateValidation, validate, updateLlmConfig);
+
+// ===== Diagnosa model LLM (daftar dari gateway + uji model) =====
+router.get('/llm-models', listLlmModels);
+router.post(
+  '/llm-test',
+  body('model').optional({ values: 'falsy' }).isString().withMessage('model harus string'),
+  validate,
+  testLlmModel
+);
+// Uji banyak model sekaligus (cari model yang bisa dipakai sebelum dipasang)
+router.post(
+  '/llm-test-batch',
+  body('models').optional({ values: 'null' }).isArray().withMessage('models harus array'),
+  body('mode').optional({ values: 'falsy' }).isString().withMessage('mode harus string'),
+  body('limit').optional({ values: 'falsy' }).isInt({ min: 1, max: 12 }).withMessage('limit 1-12'),
+  validate,
+  testLlmBatch
+);
 
 // ===== Link terpercaya (lingkup sumber web) =====
 // Body: domains[], indexUrls[], allowGovSuffix, officialOnly, strictScope, reset

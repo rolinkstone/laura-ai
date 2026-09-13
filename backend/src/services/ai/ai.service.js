@@ -141,6 +141,7 @@ const askLegacy = async ({ question, limit = null, categoryId = null }) => {
   let tokensUsed = 0;
   let usedProvider = null;
   let lastErr = null;
+  let llmError = null;
 
   if (llmConfig.isEnabled()) {
     for (const provider of getProviderOrder()) {
@@ -162,7 +163,8 @@ const askLegacy = async ({ question, limit = null, categoryId = null }) => {
   if (!answer) {
     // LLM dinonaktifkan / semua provider gagal / belum dikonfigurasi
     const disabled = !llmConfig.isEnabled();
-    modelUsed = disabled ? 'disabled' : 'not-configured';
+    modelUsed = disabled ? 'disabled' : 'error';
+    llmError = disabled ? 'LLM dinonaktifkan' : summarizeProviderError(lastErr);
     if (chunks.length > 0) {
       answer = disabled
         ? `Asisten AI sedang dinonaktifkan. Berikut informasi paling relevan dari basis pengetahuan:\n\n${chunks[0].content}`
@@ -182,7 +184,7 @@ const askLegacy = async ({ question, limit = null, categoryId = null }) => {
     score: c.score
   }));
 
-  return { answer, sources, chunks, modelUsed, tokensUsed, injected, provider: usedProvider };
+  return { answer, sources, chunks, modelUsed, tokensUsed, llmError, injected, provider: usedProvider };
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -295,7 +297,7 @@ async function* askStreamLegacy({ question, limit = null, categoryId = null }) {
 
   // LLM dinonaktifkan / semua provider gagal / belum dikonfigurasi → fallback teks
   const disabled = !llmConfig.isEnabled();
-  const model = disabled ? 'disabled' : 'not-configured';
+  const model = disabled ? 'disabled' : 'error';
   const reason = summarizeProviderError(lastErr);
   const fallback = disabled
     ? chunks.length > 0
@@ -309,7 +311,7 @@ async function* askStreamLegacy({ question, limit = null, categoryId = null }) {
     yield { type: 'token', text: piece };
     await sleep(15);
   }
-  yield { type: 'done', model };
+  yield { type: 'done', model, llmError: disabled ? 'LLM dinonaktifkan' : reason || null };
 }
 
 /**

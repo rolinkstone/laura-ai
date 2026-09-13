@@ -11,7 +11,9 @@ import {
   Save,
   Check,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  PlayCircle,
+  Wifi
 } from 'lucide-react';
 import { api, getToken, getUserRole } from '../../../lib/api';
 import {
@@ -63,6 +65,85 @@ export default function AiPage() {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
+  // Diagnosa model gateway (9Router): daftar model resmi + uji model
+  const [gateway, setGateway] = useState(null);
+  const [gatewayLoading, setGatewayLoading] = useState(false);
+  const [testModelId, setTestModelId] = useState('');
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+  // Scan banyak model sekaligus (cari model yang bisa dipakai SEBELUM dipasang)
+  const [scanResult, setScanResult] = useState(null);
+  const [scanning, setScanning] = useState(false);
+
+  const scanModels = async () => {
+    setScanning(true);
+    setScanResult(null);
+    setError('');
+    try {
+      const res = await api('/admin/llm-test-batch', {
+        method: 'POST',
+        token: getToken(),
+        body: { mode: 'sample', limit: 12 }
+      });
+      setScanResult(res.data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  /** Pasang model yang lulus uji sebagai model aktif (langsung berlaku). */
+  const useModel = async (model) => {
+    setSaving(true);
+    setError('');
+    setSaved('');
+    try {
+      const res = await api('/admin/llm-config', {
+        method: 'POST',
+        token: getToken(),
+        body: { ninerouter_model: model }
+      });
+      setForm((f) => ({ ...f, models: { ...f.models, ninerouter: model } }));
+      setConfig((c) => ({ ...c, models: res.data?.models || c?.models }));
+      setTestModelId(model);
+      setSaved(`Model aktif sekarang: ${model} — langsung berlaku tanpa restart backend.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const loadGatewayModels = async () => {
+    setGatewayLoading(true);
+    try {
+      const res = await api('/admin/llm-models', { token: getToken() });
+      setGateway(res.data);
+      setTestModelId((current) => current || res.data?.configuredModel || '');
+    } catch (err) {
+      setGateway({ models: [], count: 0, error: err.message, baseUrl: '' });
+    } finally {
+      setGatewayLoading(false);
+    }
+  };
+
+  const runModelTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api('/admin/llm-test', {
+        method: 'POST',
+        token: getToken(),
+        body: { model: testModelId }
+      });
+      setTestResult(res.data);
+    } catch (err) {
+      setTestResult({ ok: false, model: testModelId, error: err.message });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const load = () => {
     // Endpoint tunggal pengaturan LLM/API key: GET /admin/llm-config (baca & tulis).
@@ -95,6 +176,7 @@ export default function AiPage() {
       return;
     }
     load();
+    loadGatewayModels();
   }, []);
 
   const saveLlm = async (e) => {
@@ -249,7 +331,10 @@ export default function AiPage() {
           {/* Per provider */}
           <div className="space-y-4">
             <datalist id="ninerouter-model-options">
-              {MODEL_OPTIONS.map((m) => (
+              {(gateway?.models?.length
+                ? gateway.models.map((id) => ({ id, label: modelLabel(id) }))
+                : MODEL_OPTIONS
+              ).map((m) => (
                 <option key={m.id} value={m.id}>{m.label}</option>
               ))}
             </datalist>
@@ -324,6 +409,157 @@ export default function AiPage() {
             </span>
           </div>
         </form>
+      </Card>
+
+      {/* ===== Model gateway (9Router) ===== */}
+      <Card className="p-5 mb-8">
+        <h2 className="font-semibold text-slate-900 mb-1 flex items-center gap-2">
+          <Wifi size={16} /> Model Gateway (9Router)
+          {gateway && !gateway.error && <Badge color="blue">{gateway.count} model terdaftar</Badge>}
+        </h2>
+        <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+          Gateway yang dipakai backend: <b>{gateway?.baseUrl || config.baseUrl || '-'}</b>. 9Router hanya
+          bisa merutekan model yang <b>terdaftar di gateway ini</b> dan provider-nya punya kredensial aktif —
+          model di luar daftar akan ditolak (<code>model_not_found</code> / "No active credentials").
+        </p>
+
+        {gateway?.error && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-lg px-3 py-2 text-sm mb-4">
+            Gagal memuat daftar model: {gateway.error}
+          </div>
+        )}
+
+        {gateway && !gateway.error && gateway.models.length > 0 &&
+          !gateway.models.includes(config.models?.ninerouter) && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm mb-4">
+              Model tersimpan <b>{config.models?.ninerouter}</b> TIDAK ada di daftar gateway — permintaan akan
+              ditolak. Pilih salah satu model dari daftar di bawah.
+            </div>
+          )}
+
+        <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-slate-500 mb-1">Model yang diuji</label>
+            <Input
+              list="ninerouter-model-options"
+              value={testModelId}
+              onChange={(e) => setTestModelId(e.target.value)}
+              placeholder="kr/auto"
+            />
+          </div>
+          <Button type="button" onClick={runModelTest} disabled={testing}>
+            {testing ? <Loader2 size={15} className="animate-spin" /> : <PlayCircle size={15} />}
+            {testing ? 'Menguji...' : 'Uji Model'}
+          </Button>
+          <Button type="button" variant="outline" onClick={loadGatewayModels} disabled={gatewayLoading}>
+            {gatewayLoading ? 'Memuat...' : 'Muat Ulang Daftar'}
+          </Button>
+        </div>
+
+        {testResult && (
+          <div
+            className={`mt-4 text-sm rounded-lg px-3 py-2 border break-words ${
+              testResult.ok
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-rose-50 border-rose-200 text-rose-700'
+            }`}
+          >
+            {testResult.ok ? (
+              <>
+                ✓ <b>{testResult.model}</b> menjawab: “{testResult.answer}” ({testResult.ms} ms)
+              </>
+            ) : (
+              <>
+                ✗ <b>{testResult.model}</b>: {testResult.error}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ===== Scan: cari model yang bisa dipakai sebelum dipasang ===== */}
+        <div className="mt-5 pt-4 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <Button type="button" onClick={scanModels} disabled={scanning}>
+              {scanning ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+              {scanning ? 'Menguji model...' : 'Scan Model yang Bisa Dipakai'}
+            </Button>
+            <span className="text-xs text-slate-400">
+              Menguji 1 varian dasar per penyedia (maks 12 model, berurutan) — bisa 1-2 menit.
+            </span>
+          </div>
+
+          {scanResult?.error && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm mb-3">
+              {scanResult.error}
+            </div>
+          )}
+
+          {scanResult && scanResult.results?.length > 0 && (
+            <div>
+              <p className={`text-sm mb-2 ${scanResult.working?.length ? 'text-emerald-700' : 'text-rose-600'}`}>
+                {scanResult.working?.length ? (
+                  <>
+                    {scanResult.working.length} model bisa dipakai — klik <b>Pakai</b> untuk memasangnya
+                    (langsung berlaku):
+                  </>
+                ) : (
+                  'Tidak ada model yang berhasil diuji (lihat kolom alasan).'
+                )}
+              </p>
+              <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-80 overflow-y-auto">
+                {scanResult.results.map((r) => (
+                  <div key={r.model} className="flex items-center gap-2 px-3 py-2 text-xs">
+                    <span className={`shrink-0 font-bold ${r.ok ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      {r.ok ? '✓' : '✗'}
+                    </span>
+                    <span className="font-mono shrink-0 max-w-[42%] truncate" title={r.model}>
+                      {r.model}
+                    </span>
+                    <span className="shrink-0 text-slate-400">{r.ms} ms</span>
+                    <span className="min-w-0 flex-1 truncate text-slate-400" title={r.ok ? r.answer : r.error}>
+                      {r.ok ? `“${r.answer}”` : r.error}
+                    </span>
+                    {r.ok && (
+                      <button
+                        type="button"
+                        onClick={() => useModel(r.model)}
+                        disabled={saving}
+                        className="shrink-0 rounded-md border border-brand-200 bg-brand-50 px-2 py-0.5 font-medium text-brand-700 hover:bg-brand-100 disabled:opacity-50"
+                      >
+                        Pakai
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {gateway && gateway.models.length > 0 && (
+          <details className="mt-4">
+            <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">
+              Lihat {gateway.count} model yang tersedia
+            </summary>
+            <div className="mt-2 flex flex-wrap gap-1.5 max-h-52 overflow-y-auto p-1">
+              {gateway.models.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTestModelId(id)}
+                  className={`rounded-md border px-2 py-0.5 text-[11px] transition ${
+                    testModelId === id
+                      ? 'border-brand-300 bg-brand-50 text-brand-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="Klik untuk memilih model ini"
+                >
+                  {id}
+                </button>
+              ))}
+            </div>
+          </details>
+        )}
       </Card>
 
       {/* ===== Status ===== */}
