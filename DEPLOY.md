@@ -10,7 +10,8 @@
 | Keycloak client id | `laura-ai` |
 
 Semua port hanya diakses lewat nginx: frontend `127.0.0.1:3006`,
-backend `127.0.0.1:5005` (container backend memakai network host + bind loopback).
+backend `127.0.0.1:5005`. Backend bergabung ke network Docker milik container
+PostgreSQL, sehingga bisa memanggilnya lewat **nama container**.
 
 ---
 
@@ -38,6 +39,7 @@ nano .env
 | Variabel | Catatan |
 | --- | --- |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | **harus sama** dengan container `postgresql_5jhh-postgresql_5JhH-1` |
+| `POSTGRES_NETWORK` | **wajib** — nama network Docker container postgres |
 | `JWT_SECRET` | `openssl rand -base64 48` |
 | `NEXTAUTH_SECRET` | `openssl rand -base64 32` |
 | `KEYCLOAK_CLIENT_SECRET` | dari Keycloak → Clients → `laura-ai` → Credentials |
@@ -52,83 +54,57 @@ nano .env
 > DB_PASSWORD='p@ss#word$123'
 > ```
 
-> Container backend berjalan dengan `network_mode: host`, sehingga
-> `127.0.0.1:5432` adalah port host yang di-publish container PostgreSQL.
-> Bila backend dipindah ke network bridge, lihat alternatif `DB_HOST`
-> di komentar `.env.example`.
+> Backend bergabung ke network Docker container PostgreSQL (`POSTGRES_NETWORK`),
+> sehingga `DB_HOST` boleh memakai **nama container**. Detail di bawah.
 
-### Aturan `DB_HOST` — kenapa nama container bisa gagal
+### Koneksi ke PostgreSQL — aturan `DB_HOST`
 
-`docker-compose.yml` menjalankan backend dengan **`network_mode: host`**.
-Akibatnya container memakai DNS milik host, **bukan** Docker embedded DNS,
-sehingga **nama container tidak bisa di-resolve**:
-
-```
-Error: getaddrinfo ENOTFOUND postgresql_5jhh-postgresql_5JhH-1
-```
+Backend **tidak** memakai `network_mode: host`. Ia bergabung ke network Docker
+milik container PostgreSQL, sehingga Docker embedded DNS (`127.0.0.11`) aktif
+dan **nama container bisa dipakai** sebagai host.
 
 | Backend berjalan di | `DB_HOST` |
 | --- | --- |
-| Docker `network_mode: host` — **default di repo ini** | `127.0.0.1` |
+| Docker bridge, **senetwork** dengan postgres — **default di repo ini** | `postgresql_5jhh-postgresql_5JhH-1` |
+| Docker `network_mode: host` (alternatif) | `127.0.0.1` — postgres wajib publish port 5432 |
 | Langsung di host (`npm run dev`) | `127.0.0.1` |
-| Docker bridge, **senetwork** dengan postgres | `postgresql_5jhh-postgresql_5JhH-1` |
 
-Nama container hanya dikenal Docker embedded DNS (`127.0.0.11`) yang aktif di
-network bridge buatan Docker. Kalau pemanggilnya bukan anggota network itu,
-nama tersebut tidak ada di DNS mana pun.
-
-**Syarat cara default** — container postgres harus mem-publish port ke host:
+Cari nama network container postgres:
 
 ```bash
-docker ps --filter name=postgresql_5jhh --format '{{.Names}} | {{.Ports}}'
-# harus terlihat 0.0.0.0:5432->5432/tcp  (atau 127.0.0.1:5432->5432/tcp)
-```
-
-Kalau port **tidak** di-publish, pilih salah satu:
-
-<details>
-<summary><b>A. Publish port postgres</b> (paling cepat)</summary>
-
-Di project compose milik container postgres, tambahkan:
-
-```yaml
-ports:
-  - "5432:5432"
-```
-
-lalu `docker compose up -d postgres` di project tersebut.
-Tidak ada perubahan pada repo ini — `DB_HOST=127.0.0.1` tetap dipakai.
-</details>
-
-<details>
-<summary><b>B. Gabungkan backend ke network postgres</b></summary>
-
-```bash
-# 1. cari nama network container postgres
 docker inspect postgresql_5jhh-postgresql_5JhH-1 \
   --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
 ```
 
-2. Di `.env`:
+Lalu di `.env`:
 
 ```env
-POSTGRES_NETWORK=<nama-network-dari-langkah-1>
+POSTGRES_NETWORK=<hasil-perintah-di-atas>
 DB_HOST=postgresql_5jhh-postgresql_5JhH-1
 BACKEND_HOST=0.0.0.0
 ```
 
-3. Di `docker-compose.yml`, pada service `backend` — ganti `network_mode: host`
-   dengan network + port mapping, lalu tambahkan deklarasi network:
+> Bila `DB_HOST` diisi nama container tetapi backend diubah ke
+> `network_mode: host`, Docker DNS tidak aktif dan muncul
+> `getaddrinfo ENOTFOUND ...` — pada mode itu pakai `DB_HOST=127.0.0.1`.
 
-```yaml
-    networks: [pgnet]
-    ports:
-      - "127.0.0.1:${BACKEND_PORT:-5005}:${BACKEND_PORT:-5005}"
+<details>
+<summary><b>Alternatif: pakai <code>network_mode: host</code></b></summary>
 
-networks:
-  pgnet:
-    external: true
-    name: ${POSTGRES_NETWORK}
+Pada service `backend` di `docker-compose.yml`: hapus `networks` dan `ports`,
+ganti dengan `network_mode: host`; hapus juga blok `networks:` di akhir file.
+Lalu di `.env`:
+
+```env
+DB_HOST=127.0.0.1
+BACKEND_HOST=127.0.0.1
+```
+
+Syarat: container postgres mem-publish port ke host.
+
+```bash
+docker ps --filter name=postgresql_5jhh --format '{{.Names}} | {{.Ports}}'
+# harus terlihat 0.0.0.0:5432->5432/tcp
 ```
 </details>
 
@@ -331,7 +307,7 @@ Yang **wajib** bersih dari repo:
 
 | Gejala | Penyebab & solusi |
 | --- | --- |
-| `getaddrinfo ENOTFOUND <nama-container>` | `DB_HOST` diisi nama container, padahal backend `network_mode: host` (Docker DNS tidak aktif). Set `DB_HOST=127.0.0.1`, lalu `docker compose up -d --force-recreate backend`. Lihat **Aturan DB_HOST** di bagian 2. |
+| `getaddrinfo ENOTFOUND <nama-container>` | Backend tidak berada di network Docker yang sama dengan postgres. Pastikan `POSTGRES_NETWORK` di `.env` benar (lihat bagian 2), lalu `docker compose up -d --force-recreate backend`. Bila sengaja memakai `network_mode: host`, pakai `DB_HOST=127.0.0.1`. |
 | `password authentication failed for user "..."` | Password/user di `.env` tidak cocok dengan container. Cek nilai yang benar-benar diterima container: `docker compose exec backend node -e "console.log(process.env.DB_USER,(process.env.DB_PASSWORD||'').length,process.env.DB_NAME)"` — bandingkan panjangnya. Bila beda, password kemungkinan terpotong karakter `#`/`$` → bungkus kutip tunggal di `.env`. |
 | `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` | express-rate-limit mendeteksi `X-Forwarded-For` dari nginx tapi `trust proxy` mati. Pastikan `TRUST_PROXY=1` di `.env`, lalu `docker compose up -d backend`. |
 | Backend `database: disconnected` | Pastikan nama user/password/database di `.env` sama dengan container postgres. Cek: `docker exec -i postgresql_5jhh-postgresql_5JhH-1 psql -U bbpom_ai -d bbpom_ai -c '\conninfo'`. |

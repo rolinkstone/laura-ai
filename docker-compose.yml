@@ -20,23 +20,27 @@ services:
     image: laura-ai-backend:latest
     container_name: laura-backend
     restart: unless-stopped
-    # Mode host: container memakai network server langsung, sehingga container
-    # PostgreSQL (postgresql_5jhh-postgresql_5JhH-1, port 5432) bisa dijangkau
-    # lewat 127.0.0.1 — sama seperti konfigurasi yang sudah berjalan.
-    # `ports:` tidak berlaku pada mode ini; nginx mengakses API di 127.0.0.1:5005.
-    network_mode: host
+    # Backend bergabung ke network Docker milik container PostgreSQL, sehingga
+    # Docker embedded DNS aktif dan DB_HOST boleh memakai NAMA CONTAINER:
+    #   postgresql_5jhh-postgresql_5JhH-1
+    # Nama network diambil dari .env (POSTGRES_NETWORK).
+    networks:
+      - pgnet
+    # Hanya di-bind ke loopback host — akses dari luar lewat nginx (HTTPS)
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-5005}:${BACKEND_PORT:-5005}"
     dns:
       - 8.8.8.8
       - 1.1.1.1
     environment:
       NODE_ENV: production
       PORT: ${BACKEND_PORT:-5005}
-      # Hanya listen di loopback — akses dari luar tetap lewat nginx (HTTPS).
-      # Set 0.0.0.0 bila backend dipindah ke network bridge.
-      HOST: ${BACKEND_HOST:-127.0.0.1}
+      # 0.0.0.0 karena backend ada di network bridge (bukan network_mode: host)
+      HOST: ${BACKEND_HOST:-0.0.0.0}
 
       # ---- Database ----
-      DB_HOST: ${DB_HOST:-127.0.0.1}
+      # Nama container postgres — resolveable karena senetwork (pgnet)
+      DB_HOST: ${DB_HOST:-postgresql_5jhh-postgresql_5JhH-1}
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -134,3 +138,10 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
     depends_on:
       - backend
+
+networks:
+  # Network Docker milik container PostgreSQL — dipakai bersama oleh backend
+  # supaya nama container bisa di-resolve (Docker embedded DNS).
+  pgnet:
+    external: true
+    name: ${POSTGRES_NETWORK:?POSTGRES_NETWORK belum diisi di .env — lihat DEPLOY.md}
