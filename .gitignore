@@ -1,0 +1,49 @@
+# ============================================================
+# .gitignore root — LAURA AI
+# ============================================================
+
+# ===== Environment (berisi secret — JANGAN di-commit) =====
+# `.env` dan semua variannya (.env.local, .env.production, dst)
+.env
+.env.*
+# Template tetap boleh di-commit
+!.env.example
+
+# ===== Data runtime / volume Docker =====
+data/
+uploads/
+backend/uploads/
+backend/.cache/
+
+# ===== Node.js =====
+node_modules/
+
+# ===== Build output =====
+.next/
+dist/
+build/
+out/
+
+# ===== Logs =====
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# ===== Database dump / backup =====
+*.sql.gz
+*.dump
+*.bak
+
+# ===== Kunci & sertifikat =====
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# ===== OS / Editor =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

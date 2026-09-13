@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #2f6fed;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+}
+
+/* ===== Scrollbar halus ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400;
+}
+
+/* ===== Markdown styling di balon jawaban ===== */
+.md-body {
+  @apply text-[15px] leading-relaxed;
+  word-break: break-word;
+}
+.md-body p {
+  @apply mb-3;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3 {
+  @apply font-bold mt-4 mb-2 text-slate-900;
+}
+.md-body h1 {
+  @apply text-xl;
+}
+.md-body h2 {
+  @apply text-lg;
+}
+.md-body h3 {
+  @apply text-base;
+}
+.md-body ul {
+  @apply list-disc pl-5 mb-3;
+}
+.md-body ol {
+  @apply list-decimal pl-5 mb-3;
+}
+.md-body li {
+  @apply mb-1;
+}
+.md-body blockquote {
+  @apply border-l-4 border-slate-300 pl-3 italic text-slate-600 my-3;
+}
+.md-body code {
+  @apply bg-slate-100 rounded px-1 py-0.5 text-sm font-mono;
+}
+.md-body pre {
+  @apply bg-slate-900 text-slate-100 rounded-lg p-3 overflow-x-auto my-3 text-sm;
+}
+.md-body pre code {
+  @apply bg-transparent text-inherit p-0;
+}
+.md-body table {
+  @apply w-full border-collapse my-3 text-sm;
+}
+.md-body th,
+.md-body td {
+  @apply border border-slate-300 px-2 py-1;
+}
+.md-body th {
+  @apply bg-slate-100 font-semibold;
+}
+.md-body strong {
+  @apply font-semibold text-slate-900;
+}
+
+/* ===== Animasi chat ===== */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: #2f6fed;
+  border-radius: 1px;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes bounceDot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #94a3b8;
+  display: inline-block;
+  animation: bounceDot 1.2s infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes msgIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.msg-in {
+  animation: msgIn 0.25s ease-out;
+}

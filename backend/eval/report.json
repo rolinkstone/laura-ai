@@ -1,0 +1,315 @@
+{
+  "summary": {
+    "total_questions": 30,
+    "top_k": 5,
+    "avg_time_ms": 35,
+    "p95_time_ms": 28,
+    "hit_rate_title": 1,
+    "hit_rate_keyword": 0.8,
+    "no_source_rate": 0,
+    "evaluated_at": "2026-08-19T04:42:36.358Z",
+    "note": "Hallucination & source accuracy memerlukan LLM terkonfigurasi + penilai."
+  },
+  "results": [
+    {
+      "question": "Bagaimana cara melakukan pengaduan?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.838,
+      "count": 4,
+      "time_ms": 770
+    },
+    {
+      "question": "Bagaimana cara menyampaikan pengaduan masyarakat?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8293,
+      "count": 4,
+      "time_ms": 11
+    },
+    {
+      "question": "Apa saja data yang diperlukan saat mengadu?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": false,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8137,
+      "count": 4,
+      "time_ms": 12
+    },
+    {
+      "question": "Berapa lama pengaduan ditindaklanjuti?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8395,
+      "count": 4,
+      "time_ms": 11
+    },
+    {
+      "question": "Apakah identitas pelapor dirahasiakan?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8133,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Apakah layanan pengaduan berbayar?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.825,
+      "count": 4,
+      "time_ms": 10
+    },
+    {
+      "question": "Apa saja jenis layanan yang tersedia?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8196,
+      "count": 4,
+      "time_ms": 11
+    },
+    {
+      "question": "Apa syarat untuk mendapatkan layanan?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8205,
+      "count": 4,
+      "time_ms": 28
+    },
+    {
+      "question": "Jam berapa pelayanan dibuka?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.83,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Pelayanan dibuka hari apa saja?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8042,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Dimana lokasi kantor BPOM?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8516,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Bagaimana cara menghubungi BPOM?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8699,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Apa tugas utama BPOM?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8515,
+      "count": 4,
+      "time_ms": 11
+    },
+    {
+      "question": "Produk apa saja yang diawasi BPOM?",
+      "expected_title": null,
+      "title_hit": null,
+      "keyword_hit": true,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8775,
+      "count": 4,
+      "time_ms": 11
+    },
+    {
+      "question": "Apa itu izin edar produk?",
+      "expected_title": null,
+      "title_hit": null,
+      "keyword_hit": true,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8414,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Bagaimana cara mendaftarkan produk kosmetik?",
+      "expected_title": null,
+      "title_hit": null,
+      "keyword_hit": false,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8175,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Apa saja regulasi BPOM yang berlaku?",
+      "expected_title": "Regulasi Uji Coba",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8511,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Apa persyaratan kosmetik yang beredar?",
+      "expected_title": null,
+      "title_hit": null,
+      "keyword_hit": false,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8062,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Bagaimana cara mendapatkan informasi produk?",
+      "expected_title": null,
+      "title_hit": null,
+      "keyword_hit": false,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8306,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Siapa yang mengawasi obat dan makanan?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8475,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Apa standar pelayanan publik?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": false,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8029,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Berapa lama proses layanan pengaduan?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8454,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Bagaimana alur pengaduan?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8254,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Kapan jam istirahat layanan?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8193,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Apa saja saluran komunikasi yang tersedia?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": false,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.788,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Bagaimana cara melapor efek samping produk?",
+      "expected_title": null,
+      "title_hit": null,
+      "keyword_hit": true,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.8286,
+      "count": 4,
+      "time_ms": 9
+    },
+    {
+      "question": "Apakah pelayanan memungut biaya?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8015,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Bagaimana informasi untuk pelaku usaha?",
+      "expected_title": null,
+      "title_hit": null,
+      "keyword_hit": true,
+      "top_title": "Regulasi Uji Coba",
+      "top_score": 0.81,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Apa saja informasi layanan publik?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8011,
+      "count": 4,
+      "time_ms": 8
+    },
+    {
+      "question": "Bagaimana prosedur konsultasi regulasi?",
+      "expected_title": "Standar Pelayanan & Pengaduan",
+      "title_hit": true,
+      "keyword_hit": true,
+      "top_title": "Standar Pelayanan & Pengaduan",
+      "top_score": 0.8177,
+      "count": 4,
+      "time_ms": 8
+    }
+  ]
+}

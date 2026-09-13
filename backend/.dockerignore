@@ -1,0 +1,23 @@
+# Jangan masukkan secret / data lokal ke dalam image
+.env
+.env.*
+!.env.example
+
+node_modules
+uploads
+data
+.cache
+
+.git
+.gitignore
+.dockerignore
+*.log
+npm-debug.log*
+
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+Dockerfile
+docker-compose*.yml

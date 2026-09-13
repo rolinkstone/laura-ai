@@ -1,0 +1,131 @@
+# ============================================================
+# LAURA AI — Production Compose (deploy ke server)
+# ------------------------------------------------------------
+# Semua nilai sensitif diambil dari file `.env` (TIDAK di-commit).
+#   cp .env.example .env   lalu isi nilainya.
+#
+# Validasi tanpa menjalankan: docker compose config --quiet
+#
+# Database TIDAK dibuat oleh compose ini. Compose memakai container
+# PostgreSQL yang sudah berjalan di server:
+#     postgresql_5jhh-postgresql_5JhH-1   (host port 5432)
+# Backend berjalan dengan network_mode: host, jadi DB_HOST default = 127.0.0.1.
+# ============================================================
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: laura-ai-backend:latest
+    container_name: laura-backend
+    restart: unless-stopped
+    # Mode host: container memakai network server langsung, sehingga container
+    # PostgreSQL (postgresql_5jhh-postgresql_5JhH-1, port 5432) bisa dijangkau
+    # lewat 127.0.0.1 — sama seperti konfigurasi yang sudah berjalan.
+    # `ports:` tidak berlaku pada mode ini; nginx mengakses API di 127.0.0.1:5005.
+    network_mode: host
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      NODE_ENV: production
+      PORT: ${BACKEND_PORT:-5005}
+      # Hanya listen di loopback — akses dari luar tetap lewat nginx (HTTPS).
+      # Set 0.0.0.0 bila backend dipindah ke network bridge.
+      HOST: ${BACKEND_HOST:-127.0.0.1}
+
+      # ---- Database ----
+      DB_HOST: ${DB_HOST:-127.0.0.1}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+
+      # ---- Auth ----
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+
+      # ---- CORS: hanya domain frontend ----
+      CORS_ORIGIN: ${PUBLIC_FRONTEND_URL}
+
+      # ---- Embedding / RAG ----
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Xenova/multilingual-e5-small}
+      SEARCH_MIN_SCORE: ${SEARCH_MIN_SCORE:-0.15}
+      SEARCH_RESULT_LIMIT: ${SEARCH_RESULT_LIMIT:-5}
+
+      # ---- AI / LLM ----
+      AI_PROVIDER: ${AI_PROVIDER:-ninerouter}
+      NINEROUTER_API_KEY: ${NINEROUTER_API_KEY}
+      NINEROUTER_MODEL: ${NINEROUTER_MODEL:-gemini-3.6-flash}
+      NINEROUTER_BASE_URL: ${NINEROUTER_BASE_URL:-https://router.bbpompky.id/v1}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
+
+      # ---- Web scraper ----
+      WEB_ALLOW_INSECURE_TLS: ${WEB_ALLOW_INSECURE_TLS:-false}
+
+      # ---- Keycloak ----
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
+      KEYCLOAK_SERVER_URL: ${KEYCLOAK_SERVER_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-laura-ai}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+    volumes:
+      # Dokumen PDF hasil upload
+      - ./data/backend/uploads:/usr/src/app/uploads
+      # Cache model embedding (transformers.js) — agar tidak unduh ulang
+      - ./data/backend/.cache:/usr/src/app/.cache
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:'+(process.env.PORT||5005)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # NEXT_PUBLIC_* di-inline saat BUILD, jadi wajib dikirim sebagai build arg
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_BACKEND_URL}/api
+        NEXT_PUBLIC_KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
+        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-laura-ai}
+    image: laura-ai-frontend:latest
+    container_name: laura-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3006}:${FRONTEND_PORT:-3006}"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      NODE_ENV: production
+      PORT: ${FRONTEND_PORT:-3006}
+      HOSTNAME: 0.0.0.0
+
+      # ---- API backend (dipakai browser & server-side) ----
+      NEXT_PUBLIC_API_URL: ${PUBLIC_BACKEND_URL}/api
+
+      # ---- Keycloak SSO ----
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-laura-ai}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      NEXT_PUBLIC_KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-laura-ai}
+
+      # ---- NextAuth ----
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_URL_INTERNAL: http://127.0.0.1:${FRONTEND_PORT:-3006}
+      NEXTAUTH_TRUST_HOST: "true"
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+    depends_on:
+      - backend
