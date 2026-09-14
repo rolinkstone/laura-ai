@@ -185,14 +185,103 @@ const addDocumentChunk = async (req, res, next) => {
 };
 
 /**
+ * Memproses file PDF menjadi chunk + embedding DI LATAR BELAKANG.
+ *
+ * Kenapa tidak di dalam request: dokumen besar (mis. 10 MB → ribuan chunk)
+ * butuh beberapa menit untuk di-embedding. Bila diproses di dalam request,
+ * koneksi browser/proxy sudah diputus lebih dulu sehingga pengguna melihat
+ * "Failed to fetch" padahal server masih bekerja (atau justru kehabisan memori).
+ *
+ * Kegagalan di sini hanya menandai dokumen `failed` — proses Node tidak boleh
+ * ikut mati.
+ *
+ * @param {{documentId:number, filePath:string}} param
+ */
+const processDocumentFile = async ({ documentId, filePath }) => {
+  const started = Date.now();
+  try {
+    // 1) PDF → teks per halaman (sudah dibersihkan)
+    const { pages, numPages } = await extractPages(filePath);
+
+    if (pages.length === 0) {
+      await pool.query("UPDATE documents SET status = 'failed' WHERE id = ?", [documentId]);
+      console.warn(`⚠️  Dokumen ${documentId}: tidak ada teks yang dapat diekstrak (mungkin hasil scan tanpa OCR)`);
+      return;
+    }
+
+    // 2) Pecah menjadi chunk (mempertahankan nomor halaman & section)
+    const chunks = chunkPages(pages);
+
+    // 3) Embedding BERTAHAP — memori tetap terbatas walau chunk ribuan
+    const embeddings = await embedBatch(chunks.map((c) => c.content), 'passage: ', {
+      onProgress: (done, total) => {
+        if (done === total || done % 200 === 0) {
+          console.log(`   ⏳ Dokumen ${documentId}: embedding ${done}/${total} chunk`);
+        }
+      }
+    });
+
+    // 4) Simpan chunk + status ready dalam satu transaksi pendek
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query('DELETE FROM document_chunks WHERE document_id = ?', [documentId]);
+
+      for (let i = 0; i < chunks.length; i++) {
+        const c = chunks[i];
+        await conn.query(
+          `INSERT INTO document_chunks
+             (document_id, chunk_index, content, page_number, section, embedding, metadata)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [documentId, c.chunk_index, c.content, c.page, c.section,
+           JSON.stringify(embeddings[i]),
+           JSON.stringify({ embedding_model: MODEL, page: c.page, section: c.section })]
+        );
+      }
+
+      const charCount = pages.reduce((sum, p) => sum + p.text.length, 0);
+      const meta = {
+        numPages,
+        charCount,
+        chunkCount: chunks.length,
+        embeddingModel: MODEL,
+        embeddingDim: (embeddings[0] || []).length
+      };
+      await conn.query(
+        `UPDATE documents SET status = 'ready', metadata = ? WHERE id = ?`,
+        [JSON.stringify(meta), documentId]
+      );
+
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    console.log(
+      `✅ Dokumen ${documentId} siap: ${chunks.length} chunk dari ${numPages} halaman ` +
+        `(${((Date.now() - started) / 1000).toFixed(1)}s)`
+    );
+  } catch (err) {
+    console.error(`❌ Gagal memproses dokumen ${documentId}: ${err.message}`);
+    try {
+      await pool.query("UPDATE documents SET status = 'failed' WHERE id = ?", [documentId]);
+    } catch (markErr) {
+      console.error(`❌ Gagal menandai dokumen ${documentId} sebagai failed: ${markErr.message}`);
+    }
+  }
+};
+
+/**
  * POST /api/documents/upload  (multipart/form-data, field: file)
- * Alur: Upload PDF → simpan file → simpan metadata → ekstrak teks → bersihkan → chunking
+ * Alur: simpan file + metadata → balas ke pengguna → ekstraksi teks, chunking,
+ * dan embedding dikerjakan di latar belakang (dokumen berstatus `processing`).
  */
 const uploadDocument = async (req, res, next) => {
-  const conn = await pool.getConnection();
   try {
     if (!req.file) {
-      conn.release();
       return res.status(400).json({ success: false, message: 'File PDF wajib diunggah (field: file)' });
     }
 
@@ -205,85 +294,34 @@ const uploadDocument = async (req, res, next) => {
       effective_date = null
     } = req.body;
 
-    await conn.beginTransaction();
-
-    // 1) Simpan metadata dokumen (status: processing)
-    const [result] = await conn.query(
+    // 1) Simpan metadata dokumen (status: processing) — tanpa transaksi panjang
+    const [result] = await pool.query(
       `INSERT INTO documents
          (title, description, category_id, source_id, file_path, file_type, uploaded_by, document_date, effective_date, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing')`,
+       VALUES (?, ?, ?, ?, ?, 'pdf', ?, ?, ?, 'processing')`,
       [title, description, category_id || null, source_id || null,
-       req.file.filename, 'pdf', req.user.id, document_date || null, effective_date || null]
+       req.file.filename, req.user.id, document_date || null, effective_date || null]
     );
     const documentId = result.insertId;
 
-    // 2) PDF → Text (halaman per halaman, sudah dibersihkan)
-    const { pages, numPages } = await extractPages(req.file.path);
-
-    if (pages.length === 0) {
-      await conn.query("UPDATE documents SET status = 'failed' WHERE id = ?", [documentId]);
-      await conn.commit();
-      return res.status(422).json({
-        success: false,
-        message: 'Tidak ada teks yang dapat diekstrak dari PDF (mungkin hasil scan tanpa OCR)',
-        data: { id: documentId, status: 'failed' }
-      });
-    }
-
-    // 3) Pecah menjadi chunk (mempertahankan nomor halaman & section)
-    const chunks = chunkPages(pages);
-
-    // 3b) Buat embedding vektor untuk setiap chunk
-    const embeddings = await embedBatch(chunks.map((c) => c.content), 'passage: ');
-
-    for (let i = 0; i < chunks.length; i++) {
-      const c = chunks[i];
-      await conn.query(
-        `INSERT INTO document_chunks
-           (document_id, chunk_index, content, page_number, section, embedding, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [documentId, c.chunk_index, c.content, c.page, c.section,
-         JSON.stringify(embeddings[i]),
-         JSON.stringify({ embedding_model: MODEL, page: c.page, section: c.section })]
-      );
-    }
-
-    // 4) Update status ready + metadata pemrosesan
-    const charCount = pages.reduce((sum, p) => sum + p.text.length, 0);
-    const meta = {
-      numPages,
-      charCount,
-      chunkCount: chunks.length,
-      embeddingModel: MODEL,
-      embeddingDim: (embeddings[0] || []).length
-    };
-    await conn.query(
-      `UPDATE documents SET status = 'ready', metadata = ? WHERE id = ?`,
-      [JSON.stringify(meta), documentId]
-    );
-
-    await conn.commit();
-
-    res.status(201).json({
+    // 2) Balas lebih dulu — pemrosesan berat tidak menahan koneksi HTTP
+    res.status(202).json({
       success: true,
-      message: 'Dokumen berhasil diunggah dan diproses',
+      message: 'Dokumen diunggah. Ekstraksi teks & embedding sedang diproses di latar belakang.',
       data: {
         id: documentId,
         title,
         category_id: category_id || null,
         file_path: req.file.filename,
-        num_pages: numPages,
-        chunk_count: chunks.length,
-        status: 'ready'
+        status: 'processing'
       }
     });
+
+    // 3) Lanjutkan di latar belakang (sengaja tidak di-await)
+    console.log(`⏳ Dokumen ${documentId} diunggah — memproses di latar belakang…`);
+    processDocumentFile({ documentId, filePath: req.file.path });
   } catch (err) {
-    if (conn) await conn.rollback();
-    // Bersihkan file jika proses gagal
-    if (req.file) fs.unlink(req.file.path, () => {});
     next(err);
-  } finally {
-    if (conn) conn.release();
   }
 };
 
@@ -321,101 +359,67 @@ const downloadDocument = async (req, res, next) => {
 /**
  * POST /api/documents/:id/reprocess
  * Proses ulang PDF: ekstraksi teks → chunking → embedding (hapus chunk lama).
+ * Dijalankan di latar belakang seperti upload (dokumen besar bisa lama).
  */
 const reprocessDocument = async (req, res, next) => {
-  const conn = await pool.getConnection();
   try {
     const id = req.params.id;
-    const [rows] = await pool.query('SELECT id, title, file_path FROM documents WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT id, file_path FROM documents WHERE id = ?', [id]);
     if (rows.length === 0) {
-      conn.release();
       return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
     }
 
     const doc = rows[0];
     const filePath = path.join(UPLOAD_DIR, doc.file_path || '');
     if (!doc.file_path || !fs.existsSync(filePath)) {
-      conn.release();
       return res.status(404).json({ success: false, message: 'File dokumen tidak tersedia' });
     }
 
-    await conn.beginTransaction();
-    await conn.query("UPDATE documents SET status = 'processing' WHERE id = ?", [id]);
+    await pool.query("UPDATE documents SET status = 'processing' WHERE id = ?", [id]);
 
-    const { pages, numPages } = await extractPages(filePath);
-    const chunks = chunkPages(pages);
-
-    if (chunks.length === 0) {
-      await conn.query("UPDATE documents SET status = 'failed' WHERE id = ?", [id]);
-      await conn.commit();
-      conn.release();
-      return res.status(422).json({ success: false, message: 'Tidak ada teks yang dapat diekstrak (mungkin hasil scan tanpa OCR)' });
-    }
-
-    const embeddings = await embedBatch(chunks.map((c) => c.content), 'passage: ');
-
-    await conn.query('DELETE FROM document_chunks WHERE document_id = ?', [id]);
-
-    for (let i = 0; i < chunks.length; i++) {
-      const c = chunks[i];
-      await conn.query(
-        `INSERT INTO document_chunks
-           (document_id, chunk_index, content, page_number, section, embedding, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, c.chunk_index, c.content, c.page, c.section,
-         JSON.stringify(embeddings[i]),
-         JSON.stringify({ embedding_model: MODEL, page: c.page, section: c.section })]
-      );
-    }
-
-    const charCount = pages.reduce((sum, p) => sum + p.text.length, 0);
-    const meta = {
-      numPages,
-      charCount,
-      chunkCount: chunks.length,
-      embeddingModel: MODEL,
-      embeddingDim: (embeddings[0] || []).length
-    };
-    await conn.query(
-      `UPDATE documents SET status = 'ready', metadata = ? WHERE id = ?`,
-      [JSON.stringify(meta), id]
-    );
-
-    await conn.commit();
-    res.json({
+    res.status(202).json({
       success: true,
-      message: 'Dokumen berhasil di-proses ulang',
-      data: { id, status: 'ready', chunk_count: chunks.length, num_pages: numPages }
+      message: 'Proses ulang dijalankan di latar belakang. Chunk lama akan diganti setelah selesai.',
+      data: { id: Number(id), status: 'processing' }
     });
+
+    console.log(`⏳ Dokumen ${id} diproses ulang di latar belakang…`);
+    processDocumentFile({ documentId: Number(id), filePath });
   } catch (err) {
-    if (conn) await conn.rollback();
     next(err);
-  } finally {
-    if (conn) conn.release();
   }
 };
 
 /**
- * POST /api/documents/:id/reembed
- * Buat ulang embedding untuk chunk yang sudah ada (tanpa re-chunk).
+ * Membuat ulang embedding seluruh chunk sebuah dokumen DI LATAR BELAKANG.
+ * Sama seperti upload/reprocess: dokumen besar (ratusan chunk) butuh beberapa
+ * menit, jadi jangan tahan koneksi HTTP-nya.
+ *
+ * @param {{documentId:number}} param
  */
-const reembedDocument = async (req, res, next) => {
+const reembedDocumentInBackground = async ({ documentId }) => {
+  const started = Date.now();
   try {
-    const id = req.params.id;
-    const [rows] = await pool.query('SELECT id, metadata FROM documents WHERE id = ?', [id]);
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
-    }
-
     const [chunks] = await pool.query(
       'SELECT id, content, metadata FROM document_chunks WHERE document_id = ? ORDER BY chunk_index ASC',
-      [id]
+      [documentId]
     );
+
     if (chunks.length === 0) {
-      return res.status(400).json({ success: false, message: 'Dokumen belum punya chunk. Jalankan re-process dulu.' });
+      await pool.query("UPDATE documents SET status = 'failed' WHERE id = ?", [documentId]);
+      console.warn(`⚠️  Dokumen ${documentId}: tidak ada chunk untuk di-embedding ulang`);
+      return;
     }
 
-    const embeddings = await embedBatch(chunks.map((c) => c.content), 'passage: ');
+    const embeddings = await embedBatch(chunks.map((c) => c.content), 'passage: ', {
+      onProgress: (done, total) => {
+        if (done === total || done % 200 === 0) {
+          console.log(`   ⏳ Dokumen ${documentId}: re-embedding ${done}/${total} chunk`);
+        }
+      }
+    });
+
+    const [[doc]] = await pool.query('SELECT metadata FROM documents WHERE id = ?', [documentId]);
 
     const conn = await pool.getConnection();
     try {
@@ -428,14 +432,14 @@ const reembedDocument = async (req, res, next) => {
         );
       }
       const docMeta = {
-        ...(rows[0].metadata || {}),
+        ...((doc && doc.metadata) || {}),
         embeddingModel: MODEL,
         embeddingDim: (embeddings[0] || []).length
       };
-      await conn.query(
-        'UPDATE documents SET metadata = ? WHERE id = ?',
-        [JSON.stringify(docMeta), id]
-      );
+      await conn.query("UPDATE documents SET status = 'ready', metadata = ? WHERE id = ?", [
+        JSON.stringify(docMeta),
+        documentId
+      ]);
       await conn.commit();
     } catch (err) {
       await conn.rollback();
@@ -444,11 +448,51 @@ const reembedDocument = async (req, res, next) => {
       conn.release();
     }
 
-    res.json({
+    console.log(
+      `✅ Dokumen ${documentId} di-embedding ulang: ${chunks.length} chunk ` +
+        `(${((Date.now() - started) / 1000).toFixed(1)}s)`
+    );
+  } catch (err) {
+    console.error(`❌ Gagal re-embedding dokumen ${documentId}: ${err.message}`);
+    try {
+      await pool.query("UPDATE documents SET status = 'failed' WHERE id = ?", [documentId]);
+    } catch (markErr) {
+      console.error(`❌ Gagal menandai dokumen ${documentId} sebagai failed: ${markErr.message}`);
+    }
+  }
+};
+
+/**
+ * POST /api/documents/:id/reembed
+ * Buat ulang embedding untuk chunk yang sudah ada (tanpa re-chunk).
+ * Dijalankan di latar belakang — dokumen besar bisa memakan beberapa menit.
+ */
+const reembedDocument = async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const [rows] = await pool.query('SELECT id FROM documents WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
+    }
+
+    const [countRows] = await pool.query(
+      'SELECT COUNT(*)::int AS c FROM document_chunks WHERE document_id = ?',
+      [id]
+    );
+    if (!countRows[0]?.c) {
+      return res.status(400).json({ success: false, message: 'Dokumen belum punya chunk. Jalankan re-process dulu.' });
+    }
+
+    await pool.query("UPDATE documents SET status = 'processing' WHERE id = ?", [id]);
+
+    res.status(202).json({
       success: true,
-      message: `Embedding diperbarui untuk ${chunks.length} chunk`,
-      data: { id, chunk_count: chunks.length, model: MODEL }
+      message: `Embedding ${countRows[0].c} chunk diperbarui di latar belakang.`,
+      data: { id: Number(id), chunk_count: countRows[0].c, status: 'processing', model: MODEL }
     });
+
+    console.log(`⏳ Dokumen ${id} di-embedding ulang di latar belakang…`);
+    reembedDocumentInBackground({ documentId: Number(id) });
   } catch (err) {
     next(err);
   }

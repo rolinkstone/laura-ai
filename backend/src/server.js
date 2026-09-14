@@ -31,6 +31,23 @@ const start = async () => {
     } catch {
       // Tabel belum ada / skema belum di-import — pesan koneksi di atas sudah cukup
     }
+
+    // Dokumen diproses di latar belakang (lihat document.controller.js). Bila
+    // server berhenti di tengah proses, dokumen itu akan tersangkut di status
+    // `processing` selamanya — tandai gagal agar bisa diproses ulang.
+    try {
+      const { pool } = require('./config/db');
+      const result = await pool.query("UPDATE documents SET status = 'failed' WHERE status = 'processing'");
+      const stale = result.affectedRows ?? result.rowCount ?? 0;
+      if (stale > 0) {
+        console.warn(
+          `⚠️  ${stale} dokumen berstatus 'processing' ditandai gagal (server berhenti saat memproses).\n` +
+            '    Buka dashboard Dokumen → Proses Ulang untuk memprosesnya lagi.'
+        );
+      }
+    } catch {
+      // Kolom/tabel documents belum ada — abaikan
+    }
   }
 
   // Muat konfigurasi LLM runtime (dari tabel settings, fallback .env)

@@ -82,6 +82,14 @@ export default function DokumenPage() {
     load();
   }, [load]);
 
+  // Dokumen diproses di latar belakang (status 'processing'), jadi daftar
+  // di-refresh berkala sampai semua selesai — tanpa perlu reload manual.
+  useEffect(() => {
+    if (!documents.some((d) => d.status === 'processing')) return;
+    const timer = setTimeout(load, 4000);
+    return () => clearTimeout(timer);
+  }, [documents, load]);
+
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const upload = async (e) => {
@@ -311,7 +319,7 @@ export default function DokumenPage() {
             </div>
             <Button type="submit" disabled={uploading} className="w-full justify-center">
               {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-              {uploading ? 'Mengunggah & memproses...' : 'Upload & Proses'}
+              {uploading ? 'Mengunggah...' : 'Upload & Proses'}
             </Button>
           </form>
         </Card>
