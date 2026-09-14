@@ -47,7 +47,10 @@ const config = () => ({
   rag: {
     // Jumlah kandidat chunk dari vector search (sebelum selection + rerank)
     candidates: num(process.env.AGENT_RAG_CANDIDATES, 12),
-    minScore: num(process.env.SEARCH_MIN_SCORE, 0.15)
+    minScore: num(process.env.SEARCH_MIN_SCORE, 0.15),
+    // Dokumen yang di-upload di dashboard SELALU ikut dicari — termasuk saat
+    // pertanyaan memuat URL / dirutekan ke web search.
+    alwaysUse: bool(process.env.AGENT_ALWAYS_USE_RAG, true)
   },
 
   web: {
@@ -82,7 +85,12 @@ const config = () => ({
     maxPerDocument: num(process.env.AGENT_MAX_PER_DOCUMENT, 2),
     maxPerDomain: num(process.env.AGENT_MAX_PER_DOMAIN, 2),
     // Batas kandidat yang masuk ke reranker LLM (kontrol biaya/latensi)
-    preRerankLimit: num(process.env.AGENT_RERANK_PRELIMIT, 12)
+    preRerankLimit: num(process.env.AGENT_RERANK_PRELIMIT, 12),
+    // Jumlah minimal sumber DOKUMEN INTERNAL pada jawaban akhir (bila tersedia)
+    minRagSources: num(process.env.AGENT_MIN_RAG_SOURCES, 2),
+    // Sumber dokumen hanya "dipaksa masuk" bila relevansinya minimal sebesar ini
+    // (mencegah dokumen tak relevan ikut tampil seperti kasus dokumen PNBP)
+    minRagScore: num(process.env.AGENT_MIN_RAG_SCORE, 0.2)
   },
 
   rerank: {

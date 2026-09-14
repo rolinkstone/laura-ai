@@ -200,9 +200,57 @@ const toPublicSources = (candidates, max = null) => {
   }));
 };
 
+/**
+ * Pastikan jawaban akhir tetap memuat sumber DOKUMEN INTERNAL, bukan hanya web.
+ *
+ * Bila jumlah sumber dengan `origin` tertentu pada daftar final kurang dari `min`,
+ * kandidat terbaik dari `pool` (daftar lengkap hasil rerank) dipromosikan dengan
+ * menggantikan kandidat non-target berskor terendah.
+ *
+ * Pengaman: hanya kandidat dengan skor >= `minScore` yang dipromosikan, supaya
+ * dokumen yang tidak relevan tidak ikut dipaksa tampil.
+ *
+ * @param {Array} finalList hasil terpilih (sudah terurut)
+ * @param {Array} pool seluruh kandidat terurut (hasil rerank lengkap)
+ * @param {{origin?: 'rag'|'web', min?: number, minScore?: number}} opts
+ * @returns {Array} daftar final (terurut ulang)
+ */
+const ensureMinimumOrigin = (finalList, pool, { origin = 'rag', min = 0, minScore = 0 } = {}) => {
+  if (!min || !finalList || finalList.length === 0) return finalList;
+
+  const isTarget = (c) => c.origin === origin;
+  const scoreOf = (c) => Number(c.rerank_score ?? c.score ?? 0);
+
+  const out = [...finalList];
+  if (out.filter(isTarget).length >= min) return out;
+
+  const chosen = new Set(out.map((c) => c.id));
+  const candidates = (pool || [])
+    .filter((c) => isTarget(c) && !chosen.has(c.id) && scoreOf(c) >= minScore)
+    .sort((a, b) => scoreOf(b) - scoreOf(a));
+
+  for (const cand of candidates) {
+    if (out.filter(isTarget).length >= min) break;
+    // Cari item non-target dengan skor terendah untuk digantikan
+    let worstIdx = -1;
+    for (let i = out.length - 1; i >= 0; i -= 1) {
+      if (!isTarget(out[i])) {
+        worstIdx = i;
+        break;
+      }
+    }
+    if (worstIdx === -1) break;
+    out[worstIdx] = cand;
+    chosen.add(cand.id);
+  }
+
+  return out.sort((a, b) => scoreOf(b) - scoreOf(a));
+};
+
 module.exports = {
   selectSources,
   toPublicSources,
+  ensureMinimumOrigin,
   fromRagChunks,
   fromWebResults,
   applyRelativeFloor,

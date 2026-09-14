@@ -12,7 +12,7 @@ process.env.AGENT_RERANK_LLM = 'false';
 process.env.WEB_SEARCH_PROVIDER = 'off';
 
 const { heuristicPlan, looksLikeRegistrationNumber } = require('../services/ai/agent/planner');
-const { selectSources, toPublicSources } = require('../services/ai/agent/sourceSelector');
+const { selectSources, toPublicSources, ensureMinimumOrigin } = require('../services/ai/agent/sourceSelector');
 const { rerank } = require('../services/ai/agent/reranker');
 const { finalizeCitations, buildSourceBlock } = require('../services/ai/agent/citations');
 const { buildAgentSystemPrompt } = require('../services/ai/agent/prompts');
@@ -116,13 +116,36 @@ const check = (label, condition, detail = '') => {
   check('WEB_SEARCH_ALLOWED_DOMAINS menambah lingkup', isOfficialUrl('https://peraturan.bpk.go.id/x') === true);
   delete process.env.WEB_SEARCH_ALLOWED_DOMAINS;
 
-  console.log('\n9) NORMALISASI input dashboard (link terpercaya)');
-  check('URL domain -> domain saja', webCfg.normalizeDomain('https://WWW.POM.go.id/regulasi?x=1') === 'pom.go.id');
+  console.log('\n9) NORMALISASI input dashboard (link terpercaya)');  check('URL domain -> domain saja', webCfg.normalizeDomain('https://WWW.POM.go.id/regulasi?x=1') === 'pom.go.id');
   check('domain dengan port dibuang', webCfg.normalizeDomain('pom.go.id:443') === 'pom.go.id');
   check('spasi/huruf besar dirapikan', webCfg.normalizeDomain('  CekBPOM.POM.GO.ID  ') === 'cekbpom.pom.go.id');
   check('domain tidak valid ditolak', webCfg.normalizeDomain('bukan domain!') === null);
   check('http/https valid diterima', webCfg.normalizeUrl('https://www.pom.go.id/') === 'https://www.pom.go.id/');
   check('skema lain ditolak', webCfg.normalizeUrl('ftp://pom.go.id') === null);
+
+  console.log('\n10) JAMINAN SUMBER DOKUMEN (minRagSources)');
+  const pool = [
+    { id: 'web:1', origin: 'web', title: 'Web A', rerank_score: 0.9, score: 0.9, content: 'a' },
+    { id: 'web:2', origin: 'web', title: 'Web B', rerank_score: 0.8, score: 0.8, content: 'b' },
+    { id: 'web:3', origin: 'web', title: 'Web C', rerank_score: 0.7, score: 0.7, content: 'c' },
+    { id: 'rag:9', origin: 'rag', title: 'Dokumen D', rerank_score: 0.5, score: 0.5, content: 'd' },
+    { id: 'rag:8', origin: 'rag', title: 'Dokumen E', rerank_score: 0.4, score: 0.4, content: 'e' }
+  ];
+  const withDocs = ensureMinimumOrigin(pool.slice(0, 3), pool, { origin: 'rag', min: 2, minScore: 0.2 });
+  check(
+    'minimal 2 sumber dokumen masuk ke jawaban akhir',
+    withDocs.filter((c) => c.origin === 'rag').length === 2,
+    withDocs.map((c) => c.id).join(',')
+  );
+  check(
+    'daftar tetap terurut menurut skor',
+    withDocs.every((c, i, a) => i === 0 || a[i - 1].rerank_score >= c.rerank_score)
+  );
+  const irrelevant = ensureMinimumOrigin(pool.slice(0, 3), [
+    ...pool.slice(0, 3),
+    { id: 'rag:7', origin: 'rag', title: 'Dokumen F', rerank_score: 0.05, score: 0.05, content: 'f' }
+  ], { origin: 'rag', min: 2, minScore: 0.2 });
+  check('dokumen tidak relevan TIDAK dipaksa masuk', irrelevant.filter((c) => c.origin === 'rag').length === 0);
 
   console.log(`\n${failed === 0 ? 'SEMUA UJI LULUS' : `${failed} UJI GAGAL`}\n`);
   process.exit(failed === 0 ? 0 : 1);

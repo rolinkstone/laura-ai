@@ -37,7 +37,7 @@ const { complete, streamCompletion, summarizeProviderError } = require('../llmRu
 const { config } = require('./config');
 const { plan } = require('./planner');
 const { webSearch } = require('./webSearch.service');
-const { selectSources, toPublicSources } = require('./sourceSelector');
+const { selectSources, toPublicSources, ensureMinimumOrigin } = require('./sourceSelector');
 const { rerank } = require('./reranker');
 const { finalizeCitations } = require('./citations');
 const { buildAgentSystemPrompt } = require('./prompts');
@@ -96,20 +96,27 @@ const collectSources = async ({ question, limit = null, categoryId = null }) => 
   // Kandidat RAG lebih banyak dari topK — reranker yang memangkas.
   const ragLimit = Math.max(topK * 2, cfg.rag.candidates);
 
-  // ── 1. PLANNER (AI AGENT → LLM) ─────────────────────────────────────────
+  // ── 1. PLANNER (AI AGENT → LLM) ─────────────────────────────────────
   const planResult = await plan({ question, categoryId });
+
+  // Dokumen dashboard SELALU ikut dicari (kecuali dimatikan lewat AGENT_ALWAYS_USE_RAG=false),
+  // walau planner memutuskan sebaliknya (mis. pertanyaan yang memuat URL).
+  const useRag = cfg.rag.alwaysUse ? true : planResult.useRag;
+  const ragForced = useRag && !planResult.useRag;
+
   trace.push({
     stage: 'plan',
     ms: planResult.durationMs,
     source: planResult.source,
-    useRag: planResult.useRag,
+    useRag,
+    ragForced,
     useWeb: planResult.useWeb,
     queries: planResult.queries,
     reason: planResult.reason
   });
 
-  // ── 2. Cabang RAG & WEB SEARCH (paralel) ────────────────────────────────
-  const ragPromise = planResult.useRag
+  // ── 2. Cabang RAG & WEB SEARCH (paralel) ──────────────────────────
+  const ragPromise = useRag
     ? searchChunks(question, { limit: ragLimit, categoryId }).catch((err) => {
         console.warn(`[agent:rag] gagal: ${err.message}`);
         return [];
@@ -167,15 +174,23 @@ const collectSources = async ({ question, limit = null, categoryId = null }) => 
     });
 
     const rerankStartedAt = Date.now();
-    const { candidates: rankedCandidates, usedSignals } = await rerank({ question, candidates, topN: topK });
+    // topN: null → ambil seluruh kandidat terurut (dipotong setelah penjaminan sumber)
+    const { candidates: pool, usedSignals } = await rerank({ question, candidates, topN: null });
     trace.push({
       stage: label ? `rerank:${label}` : 'rerank',
       ms: Date.now() - rerankStartedAt,
-      count: rankedCandidates.length,
+      count: pool.length,
       signals: usedSignals
     });
 
-    return { ranked: rankedCandidates, dropped, signals: usedSignals };
+    // Jamin sumber DOKUMEN INTERNAL tetap ada di daftar final (bukan hanya web)
+    const rankedCandidates = ensureMinimumOrigin(pool.slice(0, topK), pool, {
+      origin: 'rag',
+      min: cfg.selection.minRagSources,
+      minScore: cfg.selection.minRagScore
+    });
+
+    return { ranked: rankedCandidates, pool, dropped, signals: usedSignals };
   };
 
   let { ranked, dropped, signals: usedSignals } = await rankStage(ragChunks, web.results);
@@ -233,7 +248,8 @@ const collectSources = async ({ question, limit = null, categoryId = null }) => 
     dropped,
     trace,
     route: {
-      useRag: planResult.useRag,
+      useRag,
+      ragForced,
       useWeb: planResult.useWeb || escalated,
       webProvider: web.provider,
       // Lingkup domain sumber web (audit: link apa saja yang boleh dipakai)
@@ -242,6 +258,11 @@ const collectSources = async ({ question, limit = null, categoryId = null }) => 
       ragChunks: ragChunks.length,
       webResults: web.results.length,
       sourcesUsed: sources.length,
+      // Rincian asal sumber pada jawaban akhir (audit: dokumen vs web)
+      sourceOrigins: sources.reduce((acc, s) => {
+        acc[s.origin] = (acc[s.origin] || 0) + 1;
+        return acc;
+      }, {}),
       // Kualitas sumber terbaik (0..1) + apakah sumber dianggap lemah
       bestScore: ranked[0]?.rerank_score ?? 0,
       weakSources,

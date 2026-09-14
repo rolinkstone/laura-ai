@@ -82,6 +82,10 @@ services:
       AGENT_RERANK_LLM: ${AGENT_RERANK_LLM:-true}
       AGENT_TOP_K: ${AGENT_TOP_K:-5}
       AGENT_RAG_CANDIDATES: ${AGENT_RAG_CANDIDATES:-12}
+      # Dokumen dashboard selalu ikut dicari + jaminan sumber dokumen di jawaban
+      AGENT_ALWAYS_USE_RAG: ${AGENT_ALWAYS_USE_RAG:-true}
+      AGENT_MIN_RAG_SOURCES: ${AGENT_MIN_RAG_SOURCES:-2}
+      AGENT_MIN_RAG_SCORE: ${AGENT_MIN_RAG_SCORE:-0.2}
       # Kualitas sumber: di bawah ambang ini sumber dianggap lemah
       AGENT_MIN_TOP_SCORE: ${AGENT_MIN_TOP_SCORE:-0.35}
       AGENT_ESCALATE_ON_WEAK: ${AGENT_ESCALATE_ON_WEAK:-true}

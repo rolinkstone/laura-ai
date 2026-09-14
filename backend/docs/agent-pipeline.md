@@ -100,6 +100,9 @@ Respons non-streaming (`POST /api/chat`, `/api/public/chat`) menambahkan
 | `AGENT_RERANK_ENABLED` | `true` | `false` → urutkan berdasar skor vector saja |
 | `AGENT_RERANK_LLM` | `true` | `false` → reranker hybrid lexical+vector (lebih cepat/murah) |
 | `AGENT_TOP_K` | `5` | Jumlah sumber final (dipakai juga sebagai jumlah sitasi) |
+| `AGENT_ALWAYS_USE_RAG` | `true` | Dokumen dashboard **selalu** ikut dicari (walau pertanyaan memuat URL / dirutekan ke web) |
+| `AGENT_MIN_RAG_SOURCES` | `2` | Jawaban akhir selalu memuat minimal N sumber dokumen internal (bila relevan) |
+| `AGENT_MIN_RAG_SCORE` | `0.2` | Ambang relevansi agar dokumen boleh "dipaksa masuk" ke daftar sumber |
 | `AGENT_MIN_TOP_SCORE` | `0.35` | Skor rerank minimum agar sumber dianggap layak dipakai |
 | `AGENT_ESCALATE_ON_WEAK` | `true` | Naik ke web search otomatis bila sumber RAG lemah |
 | `AGENT_RAG_CANDIDATES` | `12` | Kandidat chunk sebelum selection/rerank |
@@ -182,6 +185,21 @@ Dua lapis penjagaan:
 2. **Hasil difilter** — setiap URL hasil dicek `isOfficialUrl()`; yang di luar
    lingkup dibuang dan domain-nya dicatat di `agent.trace` / `route.webNotes`
    (contoh catatan: `di luar lingkup (dibuang): bpk.go.id`).
+
+## Dokumen dashboard + Web (selalu bersama)
+
+Dokumen yang di-upload di **Dashboard → Dokumen** (status `ready`, aktif, sudah
+ter-embed) selalu ikut dicari — termasuk untuk pertanyaan yang memuat URL atau yang
+dirutekan ke web search (`AGENT_ALWAYS_USE_RAG=true`).
+
+Setelah rerank, daftar sumber final dijamin memuat **minimal `AGENT_MIN_RAG_SOURCES`
+sumber dokumen internal** (bila ada yang relevansinya ≥ `AGENT_MIN_RAG_SCORE`).
+Kandidat web berskor terendah digantikan bila perlu. Pengaman skor ini mencegah
+dokumen tak relevan tampil lagi (kasus dokumen PNBP di pertanyaan nomor registrasi).
+
+Prompt juga mengatur prioritas: **dokumen internal** untuk ketentuan/regulasi/
+prosedur, **website** untuk informasi terkini (kontak, jadwal, pengumuman, tautan).
+Jumlah sumber per asal tercatat di `route.sourceOrigins` (audit).
 
 ## Routing & kualitas sumber (anti "salah sumber")
 
