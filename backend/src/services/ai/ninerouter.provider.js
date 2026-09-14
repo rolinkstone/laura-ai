@@ -24,12 +24,25 @@ const getApiKeyValue = () => getApiKey('ninerouter') || process.env.NINEROUTER_A
 // Base URL gateway 9Router (dari pengaturan runtime/dashboard, fallback env & default).
 const getBaseUrl = () => getConfiguredBaseUrl('ninerouter').replace(/\/$/, '');
 
-const buildBody = ({ system, user }, { stream, maxTokens = null, temperature = null, model = null }) => ({
+/**
+ * Susun daftar pesan untuk Chat Completions.
+ *
+ * `history` = pesan percakapan sebelumnya (urut lama → baru) dengan bentuk
+ * `{ role: 'user'|'assistant', content }`. Dikirim sebagai pesan chat biasa
+ * sehingga model melihat konteks pertanyaan lanjutan (mis. "kue kering cookies"
+ * setelah membahas "roti tawar").
+ */
+const buildMessages = ({ system, user, history = [] }) => [
+  { role: 'system', content: system },
+  ...(Array.isArray(history) ? history : [])
+    .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({ role: m.role, content: String(m.content) })),
+  { role: 'user', content: user }
+];
+
+const buildBody = ({ system, user, history = [] }, { stream, maxTokens = null, temperature = null, model = null }) => ({
   model: model || getModelName(),
-  messages: [
-    { role: 'system', content: system },
-    { role: 'user', content: user }
-  ],
+  messages: buildMessages({ system, user, history }),
   temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : 0.3,
   max_tokens: Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0 ? Number(maxTokens) : getMaxTokens(),
   stream
@@ -38,11 +51,11 @@ const buildBody = ({ system, user }, { stream, maxTokens = null, temperature = n
 /**
  * Kirim request ke 9Router dan kembalikan reader body-nya (selalu streaming SSE).
  *
- * @param {{system: string, user: string}} param
+ * @param {{system: string, user: string, history?: Array}} param
  * @param {{stream: boolean, maxTokens?: number|null, temperature?: number|null,
  *          timeoutMs?: number|null, model?: string|null}} options
  */
-const fetchStream = async ({ system, user }, { stream, maxTokens = null, temperature = null, timeoutMs = null, model = null }) => {
+const fetchStream = async ({ system, user, history = [] }, { stream, maxTokens = null, temperature = null, timeoutMs = null, model = null }) => {
   const apiKey = getApiKeyValue();
   if (!apiKey) {
     throw new Error('NINEROUTER_API_KEY belum dikonfigurasi (di dashboard AI atau .env)');
@@ -58,7 +71,7 @@ const fetchStream = async ({ system, user }, { stream, maxTokens = null, tempera
     res = await fetch(`${getBaseUrl()}/chat/completions`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(buildBody({ system, user }, { stream, maxTokens, temperature, model })),
+      body: JSON.stringify(buildBody({ system, user, history }, { stream, maxTokens, temperature, model })),
       ...(timeout ? { signal: AbortSignal.timeout(timeout) } : {})
     });
   } catch (err) {
@@ -78,11 +91,11 @@ const fetchStream = async ({ system, user }, { stream, maxTokens = null, tempera
 
 /**
  * Kirim prompt ke 9Router (non-streaming) — membaca SSE dan menggabungkan token.
- * @param {{system: string, user: string}} param
+ * @param {{system: string, user: string, history?: Array}} param
  * @returns {Promise<{text: string, model: string, tokensUsed: number}>}
  */
-const chat = async ({ system, user, maxTokens = null, temperature = null, timeoutMs = null, model = null }) => {
-  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs, model });
+const chat = async ({ system, user, history = [], maxTokens = null, temperature = null, timeoutMs = null, model = null }) => {
+  const reader = await fetchStream({ system, user, history }, { stream: true, maxTokens, temperature, timeoutMs, model });
   const usedModel = model || getModelName();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -121,11 +134,11 @@ const chat = async ({ system, user, maxTokens = null, temperature = null, timeou
 /**
  * Streaming: kirim prompt ke 9Router dan hasilkan token satu per satu.
  * (Format SSE sama seperti OpenAI: `data: {..}` dan `[DONE]`)
- * @param {{system: string, user: string}} param
+ * @param {{system: string, user: string, history?: Array}} param
  * @returns {AsyncGenerator<string>}
  */
-async function* streamTokens({ system, user, maxTokens = null, temperature = null, timeoutMs = null, model = null }) {
-  const reader = await fetchStream({ system, user }, { stream: true, maxTokens, temperature, timeoutMs, model });
+async function* streamTokens({ system, user, history = [], maxTokens = null, temperature = null, timeoutMs = null, model = null }) {
+  const reader = await fetchStream({ system, user, history }, { stream: true, maxTokens, temperature, timeoutMs, model });
   const decoder = new TextDecoder();
   let buffer = '';
 

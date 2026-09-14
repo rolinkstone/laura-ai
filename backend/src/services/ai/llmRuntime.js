@@ -76,18 +76,19 @@ const llmError = (message, code, cause = null) => {
 /**
  * Panggil LLM (non-streaming) dengan fallback antar provider.
  *
- * @param {{system: string, user: string, maxTokens?: number|null,
- *          temperature?: number|null, timeoutMs?: number|null, label?: string}} param
+ * @param {{system: string, user: string, history?: Array<{role: string, content: string}>,
+ *          maxTokens?: number|null, temperature?: number|null,
+ *          timeoutMs?: number|null, label?: string}} param
  * @returns {Promise<{text: string, model: string, tokensUsed: number, provider: string}>}
  */
-const complete = async ({ system, user, maxTokens = null, temperature = null, timeoutMs = null, label = 'llm' }) => {
+const complete = async ({ system, user, history = [], maxTokens = null, temperature = null, timeoutMs = null, label = 'llm' }) => {
   let lastErr = null;
 
   if (llmConfig.isEnabled()) {
     for (const provider of getProviderOrder()) {
       if (!isProviderConfigured(provider)) continue;
       try {
-        const result = await provider.chat({ system, user, maxTokens, temperature, timeoutMs });
+        const result = await provider.chat({ system, user, history, maxTokens, temperature, timeoutMs });
         if (!result || !result.text) throw new Error('Provider mengembalikan jawaban kosong');
         return {
           text: result.text,
@@ -186,10 +187,11 @@ const completeJson = async (params) => {
  * Melempar error (code LLM_DISABLED / LLM_FAILED) bila tidak ada provider yang
  * berhasil — pemanggil bertanggung jawab membuat teks fallback.
  *
- * @param {{system: string, user: string, timeoutMs?: number|null, label?: string}} param
+ * @param {{system: string, user: string, history?: Array<{role: string, content: string}>,
+ *          timeoutMs?: number|null, label?: string}} param
  * @returns {AsyncGenerator<object>}
  */
-async function* streamCompletion({ system, user, timeoutMs = null, label = 'llm' }) {
+async function* streamCompletion({ system, user, history = [], timeoutMs = null, label = 'llm' }) {
   let lastErr = null;
 
   if (llmConfig.isEnabled()) {
@@ -197,7 +199,7 @@ async function* streamCompletion({ system, user, timeoutMs = null, label = 'llm'
       if (!isProviderConfigured(provider)) continue;
       let started = false; // di luar try agar terlihat catch
       try {
-        for await (const token of provider.streamTokens({ system, user, timeoutMs })) {
+        for await (const token of provider.streamTokens({ system, user, history, timeoutMs })) {
           started = true;
           yield { token };
         }

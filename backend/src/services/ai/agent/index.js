@@ -85,10 +85,11 @@ const isWeakSources = (ranked, cfg) => {
 /**
  * Jalankan cabang RAG + WEB SEARCH, lalu Source Selection + Reranker.
  *
- * @param {{question: string, limit?: number|null, categoryId?: number|null}} param
+ * @param {{question: string, limit?: number|null, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {Promise<object>} hasil pengumpulan sumber + jejak (trace) tiap tahap
  */
-const collectSources = async ({ question, limit = null, categoryId = null }) => {
+const collectSources = async ({ question, limit = null, categoryId = null, history = [] }) => {
   const cfg = config();
   const trace = [];
 
@@ -97,7 +98,14 @@ const collectSources = async ({ question, limit = null, categoryId = null }) => 
   const ragLimit = Math.max(topK * 2, cfg.rag.candidates);
 
   // ── 1. PLANNER (AI AGENT → LLM) ─────────────────────────────────────
-  const planResult = await plan({ question, categoryId });
+  const planResult = await plan({ question, categoryId, history });
+
+  // Pertanyaan lanjutan (mis. "kue kering cookies" setelah membahas "roti
+  // tawar") hanya bermakna bila digabung dengan konteks percakapan. Planner
+  // menuliskan versi mandirinya di `standalone` — dipakai untuk pencarian RAG
+  // dan penilaian relevansi agar sumber yang ditemukan sesuai topik lanjutan.
+  const ragQuery = history.length > 0 && planResult.standalone ? planResult.standalone : question;
+  trace.push({ stage: 'context', usedHistory: history.length, ragQuery: ragQuery !== question ? ragQuery : undefined });
 
   // Dokumen dashboard SELALU ikut dicari (kecuali dimatikan lewat AGENT_ALWAYS_USE_RAG=false),
   // walau planner memutuskan sebaliknya (mis. pertanyaan yang memuat URL).
@@ -117,7 +125,7 @@ const collectSources = async ({ question, limit = null, categoryId = null }) => 
 
   // ── 2. Cabang RAG & WEB SEARCH (paralel) ──────────────────────────
   const ragPromise = useRag
-    ? searchChunks(question, { limit: ragLimit, categoryId }).catch((err) => {
+    ? searchChunks(ragQuery, { limit: ragLimit, categoryId }).catch((err) => {
         console.warn(`[agent:rag] gagal: ${err.message}`);
         return [];
       })
@@ -175,7 +183,7 @@ const collectSources = async ({ question, limit = null, categoryId = null }) => 
 
     const rerankStartedAt = Date.now();
     // topN: null → ambil seluruh kandidat terurut (dipotong setelah penjaminan sumber)
-    const { candidates: pool, usedSignals } = await rerank({ question, candidates, topN: null });
+    const { candidates: pool, usedSignals } = await rerank({ question: ragQuery, candidates, topN: null });
     trace.push({
       stage: label ? `rerank:${label}` : 'rerank',
       ms: Date.now() - rerankStartedAt,
@@ -314,12 +322,13 @@ const buildSystemPromptFor = (collected, question) =>
 /**
  * Jalankan pipeline AI Agent (non-streaming).
  *
- * @param {{question: string, limit?: number|null, categoryId?: number|null}} param
+ * @param {{question: string, limit?: number|null, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {Promise<{answer, sources, citations, chunks, modelUsed, tokensUsed, injected, provider, agent}>}
  */
-const runAgent = async ({ question, limit = null, categoryId = null }) => {
+const runAgent = async ({ question, limit = null, categoryId = null, history = [] }) => {
   const cfg = config();
-  const collected = await collectSources({ question, limit, categoryId });
+  const collected = await collectSources({ question, limit, categoryId, history });
   const injected = hasPromptInjection(question);
   const system = buildSystemPromptFor(collected, question);
 
@@ -327,6 +336,7 @@ const runAgent = async ({ question, limit = null, categoryId = null }) => {
   let modelUsed = null;
   let tokensUsed = 0;
   let usedProvider = null;
+  let llmError = null;
 
   // ── 5. LLM (generate jawaban bersitasi) ────────────────────────────────
   const llmStartedAt = Date.now();
@@ -334,6 +344,9 @@ const runAgent = async ({ question, limit = null, categoryId = null }) => {
     const result = await complete({
       system,
       user: question,
+      // Riwayat percakapan dikirim sebagai pesan chat agar jawaban nyambung
+      // dengan pertanyaan sebelumnya (bukan digabung ke dalam prompt).
+      history,
       maxTokens: cfg.llm.answerMaxTokens,
       timeoutMs: cfg.llm.timeoutMs,
       label: 'answer'
@@ -346,6 +359,7 @@ const runAgent = async ({ question, limit = null, categoryId = null }) => {
     console.warn(`[agent:answer] gagal: ${err.message}`);
     answer = buildFallbackAnswer({ err, chunks: collected.ragChunks });
     modelUsed = err.code === 'LLM_DISABLED' ? 'disabled' : 'not-configured';
+    llmError = err.code === 'LLM_DISABLED' ? 'LLM dinonaktifkan' : summarizeProviderError(err.cause || err);
   }
   collected.trace.push({ stage: 'generate', ms: Date.now() - llmStartedAt, model: modelUsed, provider: usedProvider });
 
@@ -385,12 +399,13 @@ const runAgent = async ({ question, limit = null, categoryId = null }) => {
  *  - { type: 'citations', citations }
  *  - { type: 'done', model, provider, citations, trace }
  *
- * @param {{question: string, limit?: number|null, categoryId?: number|null}} param
+ * @param {{question: string, limit?: number|null, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {AsyncGenerator<object>}
  */
-async function* runAgentStream({ question, limit = null, categoryId = null }) {
+async function* runAgentStream({ question, limit = null, categoryId = null, history = [] }) {
   const cfg = config();
-  const collected = await collectSources({ question, limit, categoryId });
+  const collected = await collectSources({ question, limit, categoryId, history });
   const system = buildSystemPromptFor(collected, question);
 
   yield {
@@ -413,6 +428,8 @@ async function* runAgentStream({ question, limit = null, categoryId = null }) {
     for await (const evt of streamCompletion({
       system,
       user: question,
+      // Riwayat percakapan agar jawaban lanjutan tetap nyambung
+      history,
       timeoutMs: cfg.llm.timeoutMs,
       label: 'answer-stream'
     })) {

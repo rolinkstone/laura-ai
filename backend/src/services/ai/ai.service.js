@@ -105,10 +105,11 @@ const getScriptedResponse = (question) => {
 
 /**
  * Pipeline RAG LEGACY (non-streaming) — dipakai saat AGENT_ENABLED=false.
- * @param {{question: string, limit?: number, categoryId?: number|null}} param
+ * @param {{question: string, limit?: number, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {Promise<{answer: string, sources: Array, chunks: Array, modelUsed: string, tokensUsed: number, provider: string|null}>}
  */
-const askLegacy = async ({ question, limit = null, categoryId = null }) => {
+const askLegacy = async ({ question, limit = null, categoryId = null, history = [] }) => {
   // Respons menu LAURA tanpa RAG/LLM
   const scripted = getScriptedResponse(question);
   if (scripted) {
@@ -147,7 +148,7 @@ const askLegacy = async ({ question, limit = null, categoryId = null }) => {
     for (const provider of getProviderOrder()) {
       if (!isProviderConfigured(provider)) continue;
       try {
-        const result = await provider.chat({ system, user: question });
+        const result = await provider.chat({ system, user: question, history });
         answer = result.text;
         modelUsed = result.model;
         tokensUsed = result.tokensUsed || 0;
@@ -197,10 +198,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  *                                Source Selection + Reranker + Citation).
  *  - AGENT_ENABLED=false       : pipeline RAG legacy.
  *
- * @param {{question: string, limit?: number, categoryId?: number|null}} param
+ * @param {{question: string, limit?: number, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {Promise<object>} jawaban + sources + citations
  */
-const ask = async ({ question, limit = null, categoryId = null }) => {
+const ask = async ({ question, limit = null, categoryId = null, history = [] }) => {
   const scripted = getScriptedResponse(question);
   if (scripted) {
     return {
@@ -217,10 +219,10 @@ const ask = async ({ question, limit = null, categoryId = null }) => {
   }
 
   if (agentConfig().enabled) {
-    return runAgent({ question, limit, categoryId });
+    return runAgent({ question, limit, categoryId, history });
   }
 
-  const legacy = await askLegacy({ question, limit, categoryId });
+  const legacy = await askLegacy({ question, limit, categoryId, history });
   return { ...legacy, citations: [], agent: null };
 };
 
@@ -238,10 +240,11 @@ const splitIntoChunks = (text, size = 40) => {
  *  - { type: 'token', text }  (berulang)
  *  - { type: 'done', model }
  *
- * @param {{question: string, limit?: number, categoryId?: number|null}} param
+ * @param {{question: string, limit?: number, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {AsyncGenerator<object>}
  */
-async function* askStreamLegacy({ question, limit = null, categoryId = null }) {
+async function* askStreamLegacy({ question, limit = null, categoryId = null, history = [] }) {
   // Respons menu LAURA tanpa RAG/LLM
   const scripted = getScriptedResponse(question);
   if (scripted) {
@@ -281,7 +284,7 @@ async function* askStreamLegacy({ question, limit = null, categoryId = null }) {
       if (!isProviderConfigured(provider)) continue;
       let started = false; // deklarasi di luar try agar terlihat oleh catch
       try {
-        for await (const token of provider.streamTokens({ system, user: question })) {
+        for await (const token of provider.streamTokens({ system, user: question, history })) {
           started = true;
           yield { type: 'token', text: token };
         }
@@ -322,10 +325,11 @@ async function* askStreamLegacy({ question, limit = null, categoryId = null }) {
  *                               token → citations → done).
  *  - AGENT_ENABLED=false      : pipeline RAG legacy (sources → token → done).
  *
- * @param {{question: string, limit?: number, categoryId?: number|null}} param
+ * @param {{question: string, limit?: number, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {AsyncGenerator<object>}
  */
-async function* askStream({ question, limit = null, categoryId = null }) {
+async function* askStream({ question, limit = null, categoryId = null, history = [] }) {
   const scripted = getScriptedResponse(question);
   if (scripted) {
     yield { type: 'sources', sources: [] };
@@ -338,11 +342,11 @@ async function* askStream({ question, limit = null, categoryId = null }) {
   }
 
   if (agentConfig().enabled) {
-    yield* runAgentStream({ question, limit, categoryId });
+    yield* runAgentStream({ question, limit, categoryId, history });
     return;
   }
 
-  yield* askStreamLegacy({ question, limit, categoryId });
+  yield* askStreamLegacy({ question, limit, categoryId, history });
 }
 
 module.exports = {

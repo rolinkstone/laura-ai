@@ -1,5 +1,6 @@
 const { pool } = require('../config/db');
 const { ask: askAI, askStream: askAIStream } = require('../services/ai/ai.service');
+const { getRecentHistory } = require('../services/chatHistoryService');
 
 /**
  * Chat publik (tanpa login).
@@ -66,7 +67,9 @@ const ask = async (req, res, next) => {
 
     const sessionId = await resolveGuestSession(session_id);
     const startedAt = Date.now();
-    const result = await askAI({ question: String(question).trim(), limit, categoryId: category_id });
+    // Riwayat sesi tamu dari DB → pertanyaan lanjutan tetap nyambung
+    const history = await getRecentHistory(sessionId);
+    const result = await askAI({ question: String(question).trim(), limit, categoryId: category_id, history });
 
     await persistGuestChat({
       sessionId,
@@ -115,6 +118,8 @@ const stream = async (req, res) => {
     }
 
     const sessionId = await resolveGuestSession(session_id);
+    // Riwayat sesi tamu dari DB → pertanyaan lanjutan tetap nyambung
+    const history = await getRecentHistory(sessionId);
     const startedAt = Date.now();
     let fullAnswer = '';
     let sources = [];
@@ -122,7 +127,7 @@ const stream = async (req, res) => {
     let modelUsed = '';
     let llmError = null;
 
-    for await (const evt of askAIStream({ question: String(question).trim(), limit, categoryId: category_id })) {
+    for await (const evt of askAIStream({ question: String(question).trim(), limit, categoryId: category_id, history })) {
       if (evt.type === 'sources') {
         sources = evt.sources;
         send({ type: 'sources', sources });

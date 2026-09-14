@@ -1,5 +1,6 @@
 const { pool } = require('../config/db');
 const { ask: askAI, askStream: askAIStream } = require('../services/ai/ai.service');
+const { getRecentHistory } = require('../services/chatHistoryService');
 
 /**
  * Simpan pesan (user + asisten) & log AI ke database.
@@ -37,9 +38,9 @@ const persistChatResult = async ({ userId, sessionId, question, answer, sources,
 /**
  * Jalankan pipeline RAG lalu simpan pesan & log AI ke database.
  */
-const runRagAndPersist = async ({ userId, sessionId, question, categoryId, limit }) => {
+const runRagAndPersist = async ({ userId, sessionId, question, categoryId, limit, history = [] }) => {
   const startedAt = Date.now();
-  const result = await askAI({ question, limit, categoryId });
+  const result = await askAI({ question, limit, categoryId, history });
   await persistChatResult({
     userId,
     sessionId,
@@ -95,12 +96,16 @@ const ask = async (req, res, next) => {
     }
 
     const sessionId = await resolveSession(req, session_id);
+    // Riwayat percakapan sesi ini → agar pertanyaan lanjutan tetap nyambung
+    // (mis. "kue kering cookies" setelah membahas "roti tawar").
+    const history = await getRecentHistory(sessionId);
     const result = await runRagAndPersist({
       userId: req.user.id,
       sessionId,
       question: String(question).trim(),
       categoryId: category_id,
-      limit
+      limit,
+      history
     });
 
     res.json({
@@ -142,6 +147,7 @@ const streamChat = async (req, res, next) => {
     }
 
     const sessionId = await resolveSession(req, session_id);
+    const history = await getRecentHistory(sessionId);
     const startedAt = Date.now();
     let fullAnswer = '';
     let sources = [];
@@ -150,7 +156,7 @@ const streamChat = async (req, res, next) => {
     let tokensUsed = 0;
     let llmError = null;
 
-    for await (const evt of askAIStream({ question: String(question).trim(), limit, categoryId: category_id })) {
+    for await (const evt of askAIStream({ question: String(question).trim(), limit, categoryId: category_id, history })) {
       if (evt.type === 'sources') {
         sources = evt.sources;
         send({ type: 'sources', sources });
@@ -300,7 +306,8 @@ const sendMessage = async (req, res, next) => {
       userId: req.user.id,
       sessionId: Number(id),
       question: content,
-      categoryId: category_id
+      categoryId: category_id,
+      history: await getRecentHistory(Number(id))
     });
 
     res.status(201).json({

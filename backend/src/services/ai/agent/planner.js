@@ -99,7 +99,7 @@ const isProductCheckQuestion = (text) => PRODUCT_CHECK_RE.test(String(text || ''
  * Rencana berbasis aturan (fallback + saat planner LLM nonaktif).
  * @param {string} question
  * @returns {{useRag: boolean, useWeb: boolean, queries: string[], reason: string,
- *            source: 'heuristic', productCheck: boolean, regNumber: boolean}}
+ *            source: 'heuristic', productCheck: boolean, regNumber: boolean, standalone: string}}
  */
 const heuristicPlan = (question) => {
   const text = String(question || '');
@@ -117,6 +117,8 @@ const heuristicPlan = (question) => {
     useRag: urls.length === 0 || wantsRag,
     useWeb: wantsWeb,
     queries: urls.length > 0 ? urls.slice(0, 2) : deriveQueries(text),
+    // Tanpa LLM, pertanyaan dipakai apa adanya (tidak ada penulisan ulang).
+    standalone: cleanQuery(text),
     reason:
       urls.length > 0
         ? 'pertanyaan memuat URL'
@@ -146,19 +148,36 @@ Aturan:
 1. Pilih salah satu atau keduanya. Boleh keduanya bila pertanyaan mencampur ketentuan dokumen dengan informasi terkini.
 2. Jangan pakai "web" untuk pertanyaan konsep/ketentuan yang jelas ada di dokumen resmi, kecuali pengguna meminta hal terbaru/eksternal.
 3. "queries" = 1-2 query pencarian singkat (maks 15 kata) dalam Bahasa Indonesia. Pertahankan istilah teknis/nama produk.
-4. Balas HANYA JSON valid, tanpa penjelasan tambahan.
+4. Bila ada RIWAYAT PERCAKAPAN dan pertanyaan pengguna adalah LANJUTAN (mis. hanya menyebut nama produk/topik tanpa pertanyaan lengkap), tulis "standalone" = pertanyaan lengkap yang berdiri sendiri dengan menyebut topik dari riwayat, dan sertakan topik itu juga pada "queries". Bila tidak ada riwayat atau pertanyaan sudah lengkap, "standalone" = pertanyaan pengguna apa adanya.
+5. Balas HANYA JSON valid, tanpa penjelasan tambahan.
 
 Format:
-{"use_rag": true, "use_web": false, "queries": ["..."], "reason": "alasan singkat"}`;
+{"use_rag": true, "use_web": false, "queries": ["..."], "standalone": "...", "reason": "alasan singkat"}`;
+
+/**
+ * Ringkas riwayat percakapan untuk prompt planner.
+ * @param {Array<{role: string, content: string}>} history
+ * @returns {string} blok teks (kosong bila tidak ada riwayat)
+ */
+const historyBlock = (history = []) => {
+  const messages = (Array.isArray(history) ? history : []).filter((m) => m && m.content);
+  if (messages.length === 0) return '';
+
+  const lines = messages.map(
+    (m) => `${m.role === 'assistant' ? 'LAURA' : 'Pengguna'}: ${String(m.content).slice(0, 500)}`
+  );
+  return `\n\nRIWAYAT PERCAKAPAN (lama → baru):\n${lines.join('\n')}`;
+};
 
 /**
  * Buat rencana eksekusi agent.
  *
- * @param {{question: string, categoryId?: number|null}} param
+ * @param {{question: string, categoryId?: number|null,
+ *          history?: Array<{role: string, content: string}>}} param
  * @returns {Promise<{useRag: boolean, useWeb: boolean, queries: string[], reason: string,
- *                    source: 'llm'|'heuristic', durationMs: number}>}
+ *                    source: 'llm'|'heuristic', standalone: string, durationMs: number}>}
  */
-const plan = async ({ question, categoryId = null }) => {
+const plan = async ({ question, categoryId = null, history = [] }) => {
   const cfg = config();
   const startedAt = Date.now();
 
@@ -172,7 +191,7 @@ const plan = async ({ question, categoryId = null }) => {
   try {
     const { data } = await completeJson({
       system: PLANNER_SYSTEM,
-      user: `Pertanyaan pengguna: ${question}${
+      user: `Pertanyaan pengguna: ${question}${historyBlock(history)}${
         categoryId ? `\nFilter kategori dokumen (id): ${categoryId}` : ''
       }${urls.length ? `\nURL yang disebut pengguna: ${urls.join(', ')}` : ''}`,
       maxTokens: cfg.planner.maxTokens,
@@ -195,11 +214,19 @@ const plan = async ({ question, categoryId = null }) => {
     // URL yang disebut pengguna harus tetap dibaca (prioritas tertinggi).
     if (urls.length > 0) queries = [...new Set([...urls.slice(0, 2), ...queries])].slice(0, 3);
 
+    // Pertanyaan versi mandiri (konteks percakapan sudah dimasukkan) — dipakai
+    // untuk pencarian RAG & penilaian relevansi pada pertanyaan lanjutan.
+    const standalone = String(data.standalone || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 300);
+
     return {
       // Jangan izinkan planner mematikan kedua kanal (menghindari jawaban kosong).
       useRag: useRag || (!useRag && !useWeb),
       useWeb: useWeb && cfg.web.enabled,
       queries,
+      standalone: standalone || fallback.standalone || cleanQuery(question),
       reason: cleanQuery(data.reason).slice(0, 200) || fallback.reason,
       source: 'llm',
       productCheck: fallback.productCheck,
@@ -208,7 +235,12 @@ const plan = async ({ question, categoryId = null }) => {
     };
   } catch (err) {
     console.warn(`[agent:planner] fallback ke heuristik: ${err.message}`);
-    return { ...fallback, useWeb: fallback.useWeb && cfg.web.enabled, durationMs: Date.now() - startedAt };
+    return {
+      ...fallback,
+      standalone: fallback.standalone || cleanQuery(question),
+      useWeb: fallback.useWeb && cfg.web.enabled,
+      durationMs: Date.now() - startedAt
+    };
   }
 };
 
