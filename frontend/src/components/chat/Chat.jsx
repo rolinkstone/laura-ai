@@ -264,6 +264,9 @@ export default function Chat() {
   };
 
   const resetChat = () => {
+    // Hentikan jawaban yang masih mengalir lebih dulu: kalau tidak, token sisa
+    // tetap dikirim server setelah tampilan kembali ke home (boros kuota LLM).
+    abortRef.current?.abort();
     setMessages([]);
     setLocalHistory([]);
     // Remount bersih → tata letak sama persis seperti refresh halaman
@@ -311,7 +314,8 @@ export default function Chat() {
       <div className="relative z-10 flex flex-col h-screen max-w-3xl mx-auto px-4">
         {/* Header */}
         <header className="sticky top-0 z-20 py-4 backdrop-blur-md bg-white/70 border-b border-slate-200/70 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          {/* Logo + nama: klik di ikon ATAU tulisan = kembali ke halaman utama */}
+          <div className="group relative -ml-1.5 flex items-center gap-3 rounded-xl px-1.5 py-1 transition hover:bg-white/80">
             <div className="relative h-10 w-10 rounded-xl bg-gradient-to-br from-navy-900 to-brand-600 text-white flex items-center justify-center shadow-md shadow-navy-900/30 overflow-hidden">
               <Sparkles size={20} className="relative z-0" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -326,7 +330,7 @@ export default function Chat() {
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <h1 className="font-bold text-slate-900 leading-tight">
+                <h1 className="font-bold text-slate-900 leading-tight transition group-hover:text-brand-700">
                   LAURA <span className="font-medium text-brand-600">Assistant</span>
                 </h1>
                 <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[9px] font-extrabold tracking-widest text-emerald-700 ring-1 ring-emerald-200">
@@ -335,6 +339,16 @@ export default function Chat() {
               </div>
               <p className="text-xs text-slate-500">Balai POM Palangka Raya</p>
             </div>
+            {/* Tombol transparan menutupi seluruh blok. Dipakai sebagai lapisan klik
+                karena <h1> di dalam <button> bukan markup yang valid. `z-20` perlu
+                agar berada DI ATAS gambar ikon yang memakai `z-10`. */}
+            <button
+              type="button"
+              onClick={resetChat}
+              title="Kembali ke halaman utama"
+              aria-label="Kembali ke halaman utama"
+              className="absolute inset-0 z-20 cursor-pointer rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
+            />
           </div>
           <button
             onClick={resetChat}
