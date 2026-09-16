@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Upload,
   FileText,
@@ -13,7 +13,10 @@ import {
   EyeOff,
   Loader2,
   X,
-  Globe
+  Globe,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { api, getToken, downloadFile } from '../../../lib/api';
 import {
@@ -45,12 +48,23 @@ const statusColor = {
   uploaded: 'blue'
 };
 
+// Jumlah dokumen per halaman (permintaan: tampilkan 10 saja per halaman)
+const PAGE_SIZE = 10;
+
+// Berapa nomor halaman yang ditampilkan sekaligus di navigasi
+const PAGE_WINDOW = 5;
+
 export default function DokumenPage() {
   const [documents, setDocuments] = useState([]);
   const [categories, setCategories] = useState([]);
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [meta, setMeta] = useState({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 1 });
+  const [listLoading, setListLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -60,35 +74,95 @@ export default function DokumenPage() {
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlForm, setUrlForm] = useState({ url: '', title: '', description: '', category_id: '', source_id: '' });
 
-  const load = useCallback(async () => {
+  // Kategori & sumber hanya dipakai untuk pilihan di form — cukup diambil sekali.
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = getToken();
+        const [catRes, srcRes] = await Promise.all([
+          api('/categories', { token }),
+          api('/sources', { token })
+        ]);
+        setCategories(catRes.data || []);
+        setSources(srcRes.data || []);
+      } catch (err) {
+        setError(err.message);
+      }
+    })();
+  }, []);
+
+  // Daftar dokumen: 10 baris per halaman + kata kunci pencarian.
+  // `silent` dipakai saat refresh otomatis (polling) agar tabel tidak berkedip.
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setListLoading(true);
     try {
       const token = getToken();
-      const [docRes, catRes, srcRes] = await Promise.all([
-        api('/documents', { token }),
-        api('/categories', { token }),
-        api('/sources', { token })
-      ]);
-      setDocuments(docRes.data);
-      setCategories(catRes.data);
-      setSources(srcRes.data);
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+      if (search) params.set('search', search);
+
+      const docRes = await api(`/documents?${params.toString()}`, { token });
+      setDocuments(docRes.data || []);
+
+      const nextMeta = docRes.meta || {
+        page: 1,
+        limit: PAGE_SIZE,
+        total: (docRes.data || []).length,
+        totalPages: 1
+      };
+      setMeta(nextMeta);
+      // Backend menjepit nomor halaman (mis. halaman terakhir jadi kosong
+      // setelah data dihapus) — samakan state agar penanda halaman konsisten.
+      if (nextMeta.page && nextMeta.page !== page) setPage(nextMeta.page);
     } catch (err) {
       setError(err.message);
     } finally {
+      setListLoading(false);
       setLoading(false);
     }
-  }, []);
+  }, [page, search]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  // Ketik kata kunci → tunggu 350 ms baru dikirim ke server (hindari
+  // satu request per ketukan), lalu kembali ke halaman 1.
+  useEffect(() => {
+    const term = searchInput.trim();
+    if (term === search) return;
+    const timer = setTimeout(() => {
+      setPage(1);
+      setSearch(term);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
+
   // Dokumen diproses di latar belakang (status 'processing'), jadi daftar
   // di-refresh berkala sampai semua selesai — tanpa perlu reload manual.
   useEffect(() => {
     if (!documents.some((d) => d.status === 'processing')) return;
-    const timer = setTimeout(load, 4000);
+    const timer = setTimeout(() => load({ silent: true }), 4000);
     return () => clearTimeout(timer);
   }, [documents, load]);
+
+  // Nomor halaman yang ditampilkan (maksimal PAGE_WINDOW, mengikuti halaman aktif)
+  const pageNumbers = useMemo(() => {
+    const totalPages = Math.max(1, meta.totalPages || 1);
+    const current = meta.page || 1;
+    let start = Math.max(1, current - Math.floor(PAGE_WINDOW / 2));
+    const end = Math.min(totalPages, start + PAGE_WINDOW - 1);
+    start = Math.max(1, end - PAGE_WINDOW + 1);
+    const list = [];
+    for (let p = start; p <= end; p++) list.push(p);
+    return list;
+  }, [meta.page, meta.totalPages]);
+
+  const firstRow = meta.total === 0 ? 0 : (meta.page - 1) * meta.limit + 1;
+  const lastRow = Math.min(meta.total, (meta.page - 1) * meta.limit + documents.length);
+  const goToPage = (p) => {
+    const totalPages = Math.max(1, meta.totalPages || 1);
+    setPage(Math.min(Math.max(1, p), totalPages));
+  };
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -125,10 +199,13 @@ export default function DokumenPage() {
     }
   };
 
+  // Toggle aktif/nonaktif dokumen.
+  // Endpoint backend khusus untuk ini adalah PATCH /documents/:id/active
+  // (PATCH /documents/:id tidak terdaftar → "Route tidak ditemukan").
   const toggleActive = async (doc) => {
     setBusyId(doc.id);
     try {
-      await api(`/documents/${doc.id}`, {
+      await api(`/documents/${doc.id}/active`, {
         method: 'PATCH',
         body: { is_active: doc.is_active === 1 ? 0 : 1 },
         token: getToken()
@@ -326,12 +403,32 @@ export default function DokumenPage() {
 
         {/* Daftar dokumen */}
         <Card className="lg:col-span-2 overflow-hidden">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
             <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-              <FileText size={16} /> Daftar Dokumen ({documents.length})
+              <FileText size={16} /> Daftar Dokumen ({meta.total})
             </h2>
+            <div className="relative w-full sm:w-64">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Cari judul / deskripsi / kategori..."
+                className="pl-9 pr-8"
+                aria-label="Cari dokumen"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-700"
+                  title="Bersihkan pencarian"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto ${listLoading ? 'opacity-60' : ''}`}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wider text-slate-400 border-b border-slate-100">
@@ -347,7 +444,9 @@ export default function DokumenPage() {
                 {documents.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
-                      Belum ada dokumen. Upload PDF pertama Anda.
+                      {search
+                        ? `Tidak ada dokumen yang cocok dengan "${search}".`
+                        : 'Belum ada dokumen. Upload PDF pertama Anda.'}
                     </td>
                   </tr>
                 )}
@@ -411,6 +510,74 @@ export default function DokumenPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Navigasi halaman — 10 dokumen per halaman */}
+          <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">
+              Menampilkan {firstRow}-{lastRow} dari {meta.total} dokumen
+              {search ? ` (pencarian: "${search}")` : ''}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => goToPage(meta.page - 1)}
+                disabled={listLoading || meta.page <= 1}
+                className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+                title="Halaman sebelumnya"
+              >
+                <ChevronLeft size={15} />
+              </button>
+              {pageNumbers[0] > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => goToPage(1)}
+                    className="min-w-8 px-2 py-1 rounded border border-slate-200 text-xs text-slate-600 hover:bg-slate-50"
+                  >
+                    1
+                  </button>
+                  {pageNumbers[0] > 2 && <span className="px-1 text-slate-400 text-xs">...</span>}
+                </>
+              )}
+              {pageNumbers.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => goToPage(p)}
+                  className={`min-w-8 px-2 py-1 rounded border text-xs ${
+                    p === meta.page
+                      ? 'bg-brand-600 border-brand-600 text-white'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              {pageNumbers[pageNumbers.length - 1] < meta.totalPages && (
+                <>
+                  {pageNumbers[pageNumbers.length - 1] < meta.totalPages - 1 && (
+                    <span className="px-1 text-slate-400 text-xs">...</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => goToPage(meta.totalPages)}
+                    className="min-w-8 px-2 py-1 rounded border border-slate-200 text-xs text-slate-600 hover:bg-slate-50"
+                  >
+                    {meta.totalPages}
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => goToPage(meta.page + 1)}
+                disabled={listLoading || meta.page >= meta.totalPages}
+                className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+                title="Halaman berikutnya"
+              >
+                <ChevronRight size={15} />
+              </button>
+            </div>
           </div>
         </Card>
       </div>

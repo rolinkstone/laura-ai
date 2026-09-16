@@ -291,15 +291,18 @@ export default function Chat() {
         />
       </div>
 
-      {/* Maskot LAURA di sisi kanan, hanya muncul saat percakapan berlangsung (desktop lebar) */}
+      {/* Maskot LAURA di sisi kanan, hanya muncul saat percakapan berlangsung (desktop lebar).
+          Tinggi gambar dibatasi tinggi viewport (`100vh - 9rem` = bottom-28 + sisa margin atas)
+          supaya kepalanya tidak terpotong di layar pendek — mis. laptop 14" (1280x720),
+          sementara di monitor besar tetap tampil penuh (batas atas 38rem). */}
       {messages.length > 0 && (
-        <div className="hidden xl:block fixed right-[calc(50%_-_36rem)] bottom-28 z-10 w-44 pointer-events-none select-none">
+        <div className="hidden xl:block fixed right-[calc(50%_-_36rem)] bottom-28 z-10 w-fit pointer-events-none select-none">
           <div className="overflow-hidden rounded-3xl bg-navy-900 shadow-2xl shadow-navy-900/30 ring-1 ring-black/20">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/images/maskot-bpom.png"
               alt="Maskot LAURA"
-              className="w-full h-auto object-contain"
+              className="block h-[min(38rem,calc(100vh-9rem))] w-auto object-contain object-bottom"
             />
           </div>
         </div>

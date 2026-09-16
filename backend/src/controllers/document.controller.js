@@ -22,28 +22,79 @@ const DOCUMENT_SELECT = `
 `;
 
 /**
+ * Bungkus karakter khusus LIKE (`\`, `%`, `_`) agar dianggap teks biasa.
+ * Dipakai bersama `ILIKE ? ESCAPE '\'` pada pencarian dokumen.
+ */
+const escapeLike = (value) => String(value).replace(/([\\%_])/g, '\\$1');
+
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 100;
+
+/**
  * GET /api/documents
- * Dukungan query ?category_id= & ?status=
+ * Dukungan query:
+ *   ?page=1        halaman ke- (default 1)
+ *   ?limit=10      jumlah baris per halaman (default 10, maks 100)
+ *   ?search=kata   cari di judul, deskripsi, nama kategori, & nama sumber
+ *   ?category_id= & ?status= (filter lama, tetap didukung)
+ *
+ * Respons menyertakan `meta` berisi page/limit/total/totalPages.
  */
 const getDocuments = async (req, res, next) => {
   try {
     const { category_id, status } = req.query;
-    let sql = `${DOCUMENT_SELECT} WHERE 1=1`;
+    const search = String(req.query.search || '').trim();
+
+    // Angka yang sudah divalidasi aman disisipkan langsung ke SQL
+    // (placeholder `?` tidak dipakai agar penghitungan parameter tetap sederhana).
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.limit, 10) || DEFAULT_PAGE_SIZE));
+
+    let where = ' WHERE 1=1';
     const params = [];
 
     if (category_id) {
-      sql += ' AND d.category_id = ?';
+      where += ' AND d.category_id = ?';
       params.push(category_id);
     }
     if (status) {
-      sql += ' AND d.status = ?';
+      where += ' AND d.status = ?';
       params.push(status);
     }
+    if (search) {
+      where += ` AND (d.title ILIKE ? ESCAPE '\\' OR d.description ILIKE ? ESCAPE '\\'
+                    OR dc.name ILIKE ? ESCAPE '\\' OR s.name ILIKE ? ESCAPE '\\')`;
+      const like = `%${escapeLike(search)}%`;
+      params.push(like, like, like, like);
+    }
 
-    sql += ' ORDER BY d.created_at DESC';
+    // Total baris (memakai WHERE yang sama agar hitungan konsisten dengan filter)
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*)::int AS total
+         FROM documents d
+         LEFT JOIN document_categories dc ON d.category_id = dc.id
+         LEFT JOIN sources s ON d.source_id = s.id
+        ${where}`,
+      params
+    );
+    const total = countRows[0]?.total || 0;
 
-    const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+    // Halaman dijepit ke rentang yang valid supaya tidak pernah kosong
+    // (mis. setelah baris terakhir di halaman terakhir dihapus).
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const currentPage = Math.min(page, totalPages);
+    const offset = (currentPage - 1) * limit;
+
+    const [rows] = await pool.query(
+      `${DOCUMENT_SELECT}${where} ORDER BY d.created_at DESC, d.id DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+
+    res.json({
+      success: true,
+      data: rows,
+      meta: { page: currentPage, limit, total, totalPages }
+    });
   } catch (err) {
     next(err);
   }

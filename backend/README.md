@@ -99,7 +99,7 @@ Server berjalan di `http://localhost:5005`. Cek status koneksi di:
 | GET    | `/api/auth/me`              | ✔    | Profile user login                     |
 | GET/POST/PUT/DELETE | `/api/users`      | ✔ admin | Manajemen user                       |
 | GET/POST/PUT/DELETE | `/api/roles`      | ✔    | Manajemen role                         |
-| GET/POST/PUT/DELETE | `/api/documents`  | ✔    | Manajemen dokumen                      |
+| GET/POST/PUT/DELETE | `/api/documents`  | ✔    | Manajemen dokumen (list: paginasi + pencarian) |
 | POST   | `/api/documents/upload` | ✔ admin/analyst | Upload PDF + proses ekstraksi teks |
 | POST   | `/api/documents/from-url` | ✔ admin/analyst | Tambah dokumen dari URL (HTML/PDF) |
 | GET    | `/api/documents/:id/file` | ✔  | Unduh file dokumen                    |
@@ -117,6 +117,30 @@ Server berjalan di `http://localhost:5005`. Cek status koneksi di:
 
 `roles`, `users`, `sources`, `document_categories`, `documents`, `document_chunks`,
 `faq`, `chat_sessions`, `chat_messages`, `ai_logs`, `feedback`
+
+## 📄 Daftar Dokumen: Paginasi & Pencarian
+
+`GET /api/documents` menerima query berikut (semua opsional):
+
+| Query         | Default | Keterangan                                                        |
+| ------------- | ------- | ----------------------------------------------------------------- |
+| `page`        | `1`     | Halaman ke- (otomatis dijepit bila melebihi jumlah halaman)        |
+| `limit`       | `10`    | Baris per halaman (maks 100)                                      |
+| `search`      | -       | Cari di judul, deskripsi, nama kategori, dan nama sumber (ILIKE)   |
+| `category_id` | -       | Filter kategori                                                   |
+| `status`      | -       | Filter status (`ready`, `processing`, `failed`, `draft`, ...)      |
+
+Respons menyertakan `meta`:
+
+```json
+{
+  "success": true,
+  "data": [ /* 10 baris */ ],
+  "meta": { "page": 1, "limit": 10, "total": 87, "totalPages": 9 }
+}
+```
+
+Karakter `%`, `_`, dan `\` pada `search` di-escape sehingga diperlakukan sebagai teks biasa.
 
 ## 📤 Upload & Pemrosesan PDF
 

@@ -25,10 +25,12 @@ export function Button({ children, variant = 'primary', className = '', ...props
   );
 }
 
-export function Input(props) {
+// className digabung (bukan ditimpa) supaya pemanggil bisa menambah padding
+// mis. `pl-9` saat input dipasangi ikon di dalamnya.
+export function Input({ className = '', ...props }) {
   return (
     <input
-      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
+      className={`w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 ${className}`}
       {...props}
     />
   );
