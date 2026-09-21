@@ -57,26 +57,26 @@ const buildSystemPrompt = (context) => buildLegacySystemPrompt(context);
 
 // ====================== Skrip LAURA (menu) ======================
 
-const WELCOME_TEXT = `Halo! Selamat datang di Layanan Informasi Resmi BBPOM di Palangka Raya. 👋\n\nSaya LAURA (Asisten Layanan Aduan & Informasi Obat dan Makanan), asisten virtual yang siap membantu Anda mendapatkan informasi seputar Obat dan Makanan yang aman dan terpercaya.\n\nAda yang bisa LAURA bantu hari ini? Silakan pilih menu di bawah atau ketik pertanyaan Anda:\n1️⃣ Cek Produk & Izin Edar (Obat, Makanan, Kosmetik, Suplemen)\n2️⃣ Pengaduan & Laporan Produk (Kadaluwarsa, Tanpa Izin Edar, Berbahaya)\n3️⃣ Informasi Konsultasi & Layanan Publik\n4️⃣ Tips Konsumsi Aman & Cek KLIK\n\n(Balas dengan angka 1 - 4 atau ketik langsung pertanyaan Anda)`;
+const WELCOME_TEXT = `Halo! Selamat datang di Layanan Informasi Resmi BBPOM di Palangka Raya. 👋\n\nSaya LAURA (Asisten Layanan Aduan & Informasi Obat dan Makanan), asisten virtual yang siap membantu Anda mendapatkan informasi seputar Obat dan Makanan yang aman dan terpercaya.\n\nAda yang bisa LAURA bantu hari ini? Silakan pilih menu di bawah atau ketik pertanyaan Anda:\n1️⃣ Pengaduan & Laporan Produk (Kadaluwarsa, Tanpa Izin Edar, Berbahaya)\n2️⃣ Informasi Konsultasi & Layanan Publik\n3️⃣ Tips Konsumsi Aman & Cek KLIK\n\n(Balas dengan angka 1 - 3 atau ketik langsung pertanyaan Anda)`;
 
 const MENU_RESPONSES = {
-  '1': `Untuk memastikan produk Obat/Makanan/Kosmetik yang Anda gunakan terdaftar resmi:\n\n📍 Silakan kirimkan Nomor Registrasi (NIE) atau Nama Produk/Brand yang ingin Anda cek.\n\nAtau Anda juga bisa melakukan pengecekan mandiri melalui aplikasi Cek BPOM atau situs resmi cekbpom.pom.go.id.`,
-  '2': `Laporan Anda sangat berharga untuk menjaga keselamatan bersama. 🛡️\n\nMohon lengkapi data laporan singkat berikut:\n\nNama Produk:\nLokasi Temuan/Pembelian:\nDetail Masalah: (Contoh: Rusak, Kadaluwarsa, Tidak Ada Izin Edar, Reaksi Simpang/Efek Samping)\nLampiran Foto: (jika ada)\n\nLaporan Anda akan diproses secara rahasia oleh tim petugas pengawas.`,
-  '3': `Layanan konsultasi resmi beroperasi pada:\n\n🕒 Senin – Jumat | 08.00 – 15.30 WIB\n\nSilakan tuliskan pertanyaan atau kendala yang ingin Anda konsultasikan (misal: pengurusan izin edar, sertifikasi, atau layanan laboratorium). LAURA akan memberikan informasi dasar atau menyambungkan Anda dengan petugas layanan kami.`,
-  '4': `Ingat selalu rumus Cek KLIK sebelum membeli produk Obat dan Makanan:\n\n📦 Kemasan – Pastikan dalam kondisi baik/tidak rusak\n🏷️ Label – Baca informasi produk dengan cermat\n📑 Izin Edar – Pastikan memiliki izin resmi BPOM\n📅 Kadaluwarsa – Cek tanggal batas aman penggunaan\n\nAda informasi spesifik lain yang ingin Anda ketahui?`
+  '1': `Laporan Anda sangat berharga untuk menjaga keselamatan bersama. 🛡️\n\nMohon lengkapi data laporan singkat berikut:\n\nNama Produk:\nLokasi Temuan/Pembelian:\nDetail Masalah: (Contoh: Rusak, Kadaluwarsa, Tidak Ada Izin Edar, Reaksi Simpang/Efek Samping)\nLampiran Foto: (jika ada)\n\nLaporan Anda akan diproses secara rahasia oleh tim petugas pengawas.`,
+  '2': `Layanan konsultasi resmi beroperasi pada:\n\n🕒 Senin – Jumat | 08.00 – 15.30 WIB\n\nSilakan tuliskan pertanyaan atau kendala yang ingin Anda konsultasikan (misal: pengurusan izin edar, sertifikasi, atau layanan laboratorium). LAURA akan memberikan informasi dasar atau menyambungkan Anda dengan petugas layanan kami.`,
+  '3': `Ingat selalu rumus Cek KLIK sebelum membeli produk Obat dan Makanan:\n\n📦 Kemasan – Pastikan dalam kondisi baik/tidak rusak\n🏷️ Label – Baca informasi produk dengan cermat\n📑 Izin Edar – Pastikan memiliki izin resmi BPOM\n📅 Kadaluwarsa – Cek tanggal batas aman penggunaan\n\nAda informasi spesifik lain yang ingin Anda ketahui?`
 };
 
 const CLOSING_TEXT = `Terima kasih telah menghubungi Layanan Informasi Resmi BBPOM di Palangka Raya. Semoga informasi yang LAURA berikan bermanfaat!\n\nLindungi diri dan keluarga dengan selalu menjadi konsumen cerdas. Sampai jumpa lagi! ✨`;
 
+// Menu "Mulai Percakapan" — HARUS sinkron dengan `LAURA_MENU` di
+// frontend/src/components/chat/Chat.jsx (angka yang dikirim sama dengan `num`).
 const MENU_ALIASES = {
-  '1': ['cek produk', 'cek izin edar', 'nie', 'menu 1'],
-  '2': ['pengaduan', 'laporan produk', 'aduan', 'menu 2'],
-  '3': ['konsultasi', 'layanan publik', 'menu 3'],
-  '4': ['cek klik', 'tips konsumsi', 'edukasi', 'menu 4']
+  '1': ['pengaduan', 'laporan produk', 'aduan', 'menu 1'],
+  '2': ['konsultasi', 'layanan publik', 'menu 2'],
+  '3': ['cek klik', 'tips konsumsi', 'edukasi', 'menu 3']
 };
 
 /**
- * Deteksi respons skrip LAURA (menu 1-4 / ucapan penutup) tanpa RAG/LLM.
+ * Deteksi respons skrip LAURA (menu 1-3 / ucapan penutup) tanpa RAG/LLM.
  * @param {string} question
  * @returns {{type: 'text', text: string}|null}
  */

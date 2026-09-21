@@ -15,7 +15,6 @@ import {
   RefreshCw,
   ShieldCheck,
   FileText,
-  Search,
   PenLine,
   Clock3,
   BarChart3,
@@ -40,11 +39,15 @@ import {
 } from '../../lib/api';
 
 const LAURA_MENU = [
-  { num: '1', icon: Search, label: 'Cek Produk & Izin Edar' },
-  { num: '2', icon: FileText, label: 'Pengaduan & Laporan Produk' },
-  { num: '3', icon: ShieldCheck, label: 'Informasi Konsultasi & Layanan Publik' },
-  { num: '4', icon: PenLine, label: 'Tips Konsumsi Aman & Cek KLIK' }
+  { num: '1', icon: FileText, label: 'Pengaduan & Laporan Produk' },
+  { num: '2', icon: ShieldCheck, label: 'Informasi Konsultasi & Layanan Publik' },
+  { num: '3', icon: PenLine, label: 'Tips Konsumsi Aman & Cek KLIK' }
 ];
+
+// Tinggi kotak ketik pesan: min ±2 baris (64 px), tumbuh mengikuti isi sampai 160 px.
+// `rows={1}` + `max-h-*` TIDAK membuat textarea tumbuh sendiri — perlu diatur di JS.
+const INPUT_MIN_H = 64;
+const INPUT_MAX_H = 160;
 
 const scoreColor = (score) => {
   if (score >= 0.7) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -95,6 +98,14 @@ export default function Chat() {
       sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
     }
   }, [messages]);
+
+  // Kotak ketik menyesuaikan tinggi dengan isi (min 2 baris, maks 160 px).
+  useEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(Math.max(ta.scrollHeight, INPUT_MIN_H), INPUT_MAX_H)}px`;
+  }, [input]);
 
   const send = async (text) => {
     const question = (text ?? input).trim();
@@ -294,12 +305,14 @@ export default function Chat() {
         />
       </div>
 
-      {/* Maskot LAURA di sisi kanan, hanya muncul saat percakapan berlangsung (desktop lebar).
-          Tinggi gambar dibatasi tinggi viewport (`100vh - 9rem` = bottom-28 + sisa margin atas)
-          supaya kepalanya tidak terpotong di layar pendek — mis. laptop 14" (1280x720),
-          sementara di monitor besar tetap tampil penuh (batas atas 38rem). */}
+      {/* Maskot LAURA di sisi kanan, hanya muncul saat percakapan berlangsung.
+          Kolom chat kini lebih lebar (`max-w-5xl` = 64rem) → butuh sisa ruang ±16rem
+          di samping supaya maskot (±169 px) tidak menimpa kolom, karena itu breakpoint
+          dinaikkan ke `2xl` (1536 px) dan posisinya digeser ke `50% - 44rem`.
+          Tinggi gambar dibatasi tinggi viewport (`100vh - 9rem` = bottom-28 + sisa
+          margin atas) supaya kepalanya tidak terpotong di layar pendek. */}
       {messages.length > 0 && (
-        <div className="hidden xl:block fixed right-[calc(50%_-_36rem)] bottom-28 z-10 w-fit pointer-events-none select-none">
+        <div className="hidden 2xl:block fixed right-[calc(50%_-_44rem)] bottom-28 z-10 w-fit pointer-events-none select-none">
           <div className="overflow-hidden rounded-3xl bg-navy-900 shadow-2xl shadow-navy-900/30 ring-1 ring-black/20">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -311,9 +324,12 @@ export default function Chat() {
         </div>
       )}
 
-      <div className="relative z-10 flex flex-col h-screen max-w-3xl mx-auto px-4">
+      {/* Kolom chat: lebih lebar (max-w-3xl → max-w-5xl) dan selalu setinggi
+          viewport yang BENAR-BENAR terlihat (`h-dvh`) — di mobile `100vh` lebih
+          tinggi dari area tampil sehingga kolom input pernah tertutup toolbar. */}
+      <div className="relative z-10 flex flex-col h-dvh max-w-5xl mx-auto px-4">
         {/* Header */}
-        <header className="sticky top-0 z-20 py-4 backdrop-blur-md bg-white/70 border-b border-slate-200/70 flex items-center justify-between">
+        <header className="sticky top-0 z-20 py-3 backdrop-blur-md bg-white/70 border-b border-slate-200/70 flex items-center justify-between">
           {/* Logo + nama: klik di ikon ATAU tulisan = kembali ke halaman utama */}
           <div className="group relative -ml-1.5 flex items-center gap-3 rounded-xl px-1.5 py-1 transition hover:bg-white/80">
             <div className="relative h-10 w-10 rounded-xl bg-gradient-to-br from-navy-900 to-brand-600 text-white flex items-center justify-center shadow-md shadow-navy-900/30 overflow-hidden">
@@ -526,7 +542,7 @@ export default function Chat() {
                     Mulai Percakapan
                   </h3>
                   <span className="hidden text-[11px] text-slate-400 sm:inline">
-                    Balas angka 1 - 4 atau ketik pertanyaan langsung
+                    Balas angka 1 - 3 atau ketik pertanyaan langsung
                   </span>
                 </div>
                 <div className="flex flex-col gap-2.5">
@@ -792,11 +808,11 @@ export default function Chat() {
         </div>
 
         {/* Input */}
-        <div className="pb-5 pt-1">
+        <div className="pb-4 pt-1">
           <div className="flex items-end gap-2 bg-white border border-slate-200 rounded-2xl p-2 shadow-lg shadow-slate-200/60 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 transition">
             <textarea
               ref={inputRef}
-              rows={1}
+              rows={2}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -806,7 +822,7 @@ export default function Chat() {
                 }
               }}
               placeholder="Ketik pertanyaan Anda..."
-              className="flex-1 resize-none outline-none bg-transparent px-2 py-2 text-[15px] max-h-32"
+              className="flex-1 resize-none outline-none bg-transparent px-2.5 py-2 text-[15px] leading-relaxed max-h-40"
             />
             {loading ? (
               <button

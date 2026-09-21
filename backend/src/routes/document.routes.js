@@ -22,7 +22,7 @@ const {
 } = require('../validations/document.validation');
 const validate = require('../middlewares/validate');
 const { auth, authorize } = require('../middlewares/auth');
-const { upload } = require('../config/multer');
+const { upload, normalizeMulterError } = require('../config/multer');
 const { uploadLimiter } = require('../middlewares/rateLimiter');
 
 const router = express.Router();
@@ -32,9 +32,10 @@ const uploadSingle = upload.single('file');
 const uploadMiddleware = (req, res, next) => {
   uploadSingle(req, res, (err) => {
     if (err) {
-      return res.status(err.status || 400).json({
+      const e = normalizeMulterError(err);
+      return res.status(e.status || 400).json({
         success: false,
-        message: err.message || 'Gagal mengunggah file'
+        message: e.message || 'Gagal mengunggah file'
       });
     }
     next();

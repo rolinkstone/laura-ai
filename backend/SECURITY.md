@@ -10,7 +10,7 @@ Status setiap item untuk produksi. Centang saat diverifikasi.
 - [x] **RBAC** — role `admin`/`analyst`/`viewer` via `authorize()`; `super_admin` dapat dipetakan ke `admin`
 - [x] **Input validation** — `express-validator` di semua route tulis
 - [x] **File validation** — hanya PDF via `multer` fileFilter (`src/config/multer.js`)
-- [x] **File size limit** — maksimal 20 MB via `multer` limits
+- [x] **File size limit** — maksimal 50 MB via `multer` limits
 - [x] **SQL injection protection** — semua query memakai prepared statement (`?`)
 - [x] **Prompt injection protection** — deteksi pola + hardening system prompt (`src/services/ai/promptGuard.js`)
 - [x] **API key protection** — kunci LLM hanya di `.env`, tidak diekspos API (endpoint `/admin/config` hanya menampilkan status bool)

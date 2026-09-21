@@ -51,6 +51,9 @@ const statusColor = {
 // Jumlah dokumen per halaman (permintaan: tampilkan 10 saja per halaman)
 const PAGE_SIZE = 10;
 
+// Harus sama dengan `MAX_UPLOAD_MB` di backend/src/config/multer.js
+const MAX_UPLOAD_MB = 50;
+
 // Berapa nomor halaman yang ditampilkan sekaligus di navigasi
 const PAGE_WINDOW = 5;
 
@@ -170,6 +173,16 @@ export default function DokumenPage() {
     e.preventDefault();
     const file = e.target.file?.files?.[0];
     if (!file) return setError('Pilih file PDF terlebih dahulu');
+
+    const maxBytes = MAX_UPLOAD_MB * 1024 * 1024;
+    if (file.size > maxBytes) {
+      return setError(
+        `Ukuran file ${(file.size / 1024 / 1024).toFixed(1)} MB melebihi batas ${MAX_UPLOAD_MB} MB`
+      );
+    }
+    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
+      return setError('Hanya file PDF yang diperbolehkan');
+    }
 
     const fd = new FormData();
     fd.append('file', file);
@@ -347,7 +360,10 @@ export default function DokumenPage() {
           </h2>
           <form onSubmit={upload} className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">File PDF *</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                File PDF *
+                <span className="ml-1 font-normal text-slate-400">(maksimal {MAX_UPLOAD_MB} MB)</span>
+              </label>
               <input
                 type="file"
                 name="file"

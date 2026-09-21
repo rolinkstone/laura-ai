@@ -235,7 +235,7 @@ server {
     listen 80;
     server_name data-laura.bbpompky.id;
 
-    client_max_body_size 25m;   # upload PDF maksimal 20 MB
+    client_max_body_size 60m;   # upload PDF maksimal 50 MB (beri ruang untuk overhead multipart)
 
     location / {
         proxy_pass         http://127.0.0.1:5005;
