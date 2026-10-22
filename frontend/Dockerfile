@@ -2,8 +2,7 @@ FROM node:24.22.1-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache libc6-compat
+# Base image Debian/glibc (slim) — tidak butuh libc6-compat (khusus Alpine).
 
 # Copy package files
 COPY package.json package-lock.json ./
