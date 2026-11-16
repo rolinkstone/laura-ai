@@ -11,17 +11,34 @@ import {
   Cpu,
   Users
 } from 'lucide-react';
-import { api, getToken } from '../../lib/api';
+import { api, getToken, getUserRole } from '../../lib/api';
 import { Card, Spinner, PageHeader, Badge, ErrorBox, Button } from '../../components/admin/ui';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState('');
 
-  const load = useCallback(() => {
-    api('/admin/stats', { token: getToken() })
-      .then((res) => setStats(res.data))
-      .catch((err) => setError(err.message));
+  // Dashboard memakai endpoint yang boleh dibaca SEMUA role (/admin/dashboard).
+  // Fallback ke /admin/stats hanya untuk backend lama, dan hanya untuk admin —
+  // supaya user biasa tidak berujung melihat error 403.
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const res = await api('/admin/dashboard', { token: getToken() });
+      setStats(res.data);
+    } catch (err) {
+      if (err.status === 404 && getUserRole() === 'admin') {
+        try {
+          const res = await api('/admin/stats', { token: getToken() });
+          setStats(res.data);
+          return;
+        } catch (err2) {
+          setError(err2.message);
+          return;
+        }
+      }
+      setError(err.message);
+    }
   }, []);
 
   useEffect(() => {
@@ -49,15 +66,26 @@ export default function Dashboard() {
     { label: 'FAQ', value: stats.counts.faqs, icon: HelpCircle, color: 'bg-emerald-50 text-emerald-600' },
     { label: 'Kategori', value: stats.counts.categories, icon: FolderTree, color: 'bg-amber-50 text-amber-600' },
     { label: 'Sumber', value: stats.counts.sources, icon: Link2, color: 'bg-violet-50 text-violet-600' },
-    { label: 'Sesi Chat', value: stats.counts.sessions, icon: MessagesSquare, color: 'bg-sky-50 text-sky-600' },
-    { label: 'Pesan', value: stats.counts.messages, icon: Activity, color: 'bg-slate-100 text-slate-600' },
-    { label: 'Log AI', value: stats.counts.aiLogs, icon: Cpu, color: 'bg-rose-50 text-rose-600' },
-    { label: 'Pengguna', value: stats.counts.users, icon: Users, color: 'bg-teal-50 text-teal-600' }
+    { label: stats.scope === 'own' ? 'Sesi Chat Saya' : 'Sesi Chat', value: stats.counts.sessions, icon: MessagesSquare, color: 'bg-sky-50 text-sky-600' },
+    { label: stats.scope === 'own' ? 'Pesan Saya' : 'Pesan', value: stats.counts.messages, icon: Activity, color: 'bg-slate-100 text-slate-600' },
+    ...(stats.scope === 'own'
+      ? []
+      : [
+          { label: 'Log AI', value: stats.counts.aiLogs ?? 0, icon: Cpu, color: 'bg-rose-50 text-rose-600' },
+          { label: 'Pengguna', value: stats.counts.users, icon: Users, color: 'bg-teal-50 text-teal-600' }
+        ])
   ];
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Ringkasan sistem BBPOM AI Assistant" />
+      <PageHeader
+        title="Dashboard"
+        subtitle={
+          stats.scope === 'own'
+            ? 'Ringkasan Knowledge Base dan aktivitas Anda'
+            : 'Ringkasan sistem BBPOM AI Assistant'
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {cards.map((c) => (
@@ -74,7 +102,8 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className={`grid gap-6 ${stats.recentLogs?.length > 0 ? 'lg:grid-cols-2' : ''}`}>
+        {stats.recentLogs?.length > 0 && (
         <Card className="p-5">
           <h2 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
             <Cpu size={16} /> Log AI Terbaru
@@ -95,10 +124,12 @@ export default function Dashboard() {
             </ul>
           )}
         </Card>
+        )}
 
         <Card className="p-5">
           <h2 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-            <MessagesSquare size={16} /> Percakapan Terbaru
+            <MessagesSquare size={16} />{' '}
+            {stats.scope === 'own' ? 'Percakapan Saya Terbaru' : 'Percakapan Terbaru'}
           </h2>
           {stats.recentSessions.length === 0 ? (
             <p className="text-sm text-slate-400">Belum ada percakapan.</p>

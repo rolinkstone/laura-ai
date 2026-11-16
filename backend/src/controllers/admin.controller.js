@@ -8,6 +8,7 @@ const {
 } = require('../services/ai/agent/officialSources');
 const { config: agentConfig } = require('../services/ai/agent/config');
 const { resolveProvider } = require('../services/ai/agent/webSearch.service');
+const { recordAudit, listAudit } = require('../services/auditService');
 
 /**
  * GET /api/admin/stats
@@ -58,6 +59,115 @@ const getStats = async (req, res, next) => {
 };
 
 /**
+ * GET /api/admin/dashboard
+ * Ringkasan singkat untuk halaman Dashboard (SEMUA role yang login).
+ *
+ * Dipisah dari getStats (khusus admin) supaya user biasa tetap bisa membuka
+ * halaman utama dashboard. Tidak ada data sensitif di sini: angka agregat,
+ * tanpa prompt/jawaban AI maupun isi percakapan pengguna lain.
+ */
+const getDashboardSummary = async (req, res, next) => {
+  try {
+    const tables = [
+      ['documents', 'documents'],
+      ['faqs', 'faq'],
+      ['categories', 'document_categories'],
+      ['sources', 'sources']
+    ];
+
+    const counts = {};
+    for (const [key, table] of tables) {
+      const [r] = await pool.query(`SELECT COUNT(*) AS c FROM ${table}`);
+      counts[key] = r[0].c;
+    }
+
+    const [activeDocuments] = await pool.query(
+      "SELECT COUNT(*) AS c FROM documents WHERE status = 'ready' AND is_active = 1"
+    );
+    counts.activeDocuments = activeDocuments[0].c;
+
+    // Statistik chat: admin melihat seluruh sistem, user lain hanya miliknya
+    const isAdmin = req.user.role_name === 'admin';
+    const [sessions] = isAdmin
+      ? await pool.query('SELECT COUNT(*) AS c FROM chat_sessions')
+      : await pool.query('SELECT COUNT(*) AS c FROM chat_sessions WHERE user_id = ?', [req.user.id]);
+    const [messages] = isAdmin
+      ? await pool.query('SELECT COUNT(*) AS c FROM chat_messages')
+      : await pool.query(
+          `SELECT COUNT(*) AS c FROM chat_messages cm
+            JOIN chat_sessions cs ON cm.session_id = cs.id
+           WHERE cs.user_id = ?`,
+          [req.user.id]
+        );
+    counts.sessions = sessions[0].c;
+    counts.messages = messages[0].c;
+
+    const [users] = await pool.query('SELECT COUNT(*) AS c FROM users');
+    counts.users = users[0].c;
+
+    let recentLogs = [];
+    if (isAdmin) {
+      const [logs] = await pool.query(
+        `SELECT id, model, prompt, duration_ms, status, created_at
+           FROM ai_logs ORDER BY id DESC LIMIT 10`
+      );
+      recentLogs = logs;
+    }
+
+    // Percakapan terbaru: admin -> semua user, selain admin -> miliknya sendiri
+    const [recentSessions] = isAdmin
+      ? await pool.query(
+          `SELECT cs.id, cs.title, cs.created_at, u.full_name AS user_name,
+                  (SELECT COUNT(*) FROM chat_messages cm WHERE cm.session_id = cs.id) AS message_count
+             FROM chat_sessions cs
+             LEFT JOIN users u ON cs.user_id = u.id
+            ORDER BY cs.updated_at DESC LIMIT 8`
+        )
+      : await pool.query(
+          `SELECT cs.id, cs.title, cs.created_at, u.full_name AS user_name,
+                  (SELECT COUNT(*) FROM chat_messages cm WHERE cm.session_id = cs.id) AS message_count
+             FROM chat_sessions cs
+             LEFT JOIN users u ON cs.user_id = u.id
+            WHERE cs.user_id = ?
+            ORDER BY cs.updated_at DESC LIMIT 8`,
+          [req.user.id]
+        );
+
+    res.json({
+      success: true,
+      data: {
+        scope: isAdmin ? 'all' : 'own',
+        viewer: req.user.role_name,
+        counts,
+        recentLogs,
+        recentSessions
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/admin/audit
+ * Daftar jejak audit tindakan penting (khusus admin).
+ * Query: limit, before_id (paginasi), action, entity.
+ */
+const getAuditLogs = async (req, res, next) => {
+  try {
+    const rows = await listAudit({
+      limit: req.query.limit,
+      beforeId: req.query.before_id,
+      action: req.query.action,
+      entity: req.query.entity
+    });
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * GET /api/admin/config
  * Konfigurasi AI (tanpa membocorkan API key).
  */
@@ -101,6 +211,23 @@ const getLlmConfig = async (req, res, next) => {
 const updateLlmConfig = async (req, res, next) => {
   try {
     const config = await llmConfig.updateConfig(req.body);
+
+    // Jejak audit: nilai API key TIDAK PERNAH disimpan, hanya statusnya
+    // (key_dihapus bila dikirim string kosong) supaya tidak ada secret di log.
+    const keyFields = Object.keys(req.body || {}).filter((k) => k.endsWith('_api_key'));
+    await recordAudit(req, {
+      action: 'admin.llm_config.update',
+      entity: 'settings',
+      entityId: 'llm',
+      detail: {
+        fields: Object.keys(req.body || {}),
+        key_dihapus: keyFields.filter((k) => req.body[k] === ''),
+        key_diisi: keyFields.filter((k) => req.body[k] !== ''),
+        model: req.body?.ninerouter_model || null,
+        enabled: req.body?.enabled ?? null
+      }
+    });
+
     res.json({
       success: true,
       message: 'Pengaturan LLM berhasil disimpan',
@@ -391,6 +518,14 @@ const getWebSearchConfig = async (req, res, next) => {
 const updateWebSearchConfig = async (req, res, next) => {
   try {
     await webSearchConfig.updateConfig(req.body || {});
+
+    await recordAudit(req, {
+      action: 'admin.web_search_config.update',
+      entity: 'settings',
+      entityId: 'web_search',
+      detail: { fields: Object.keys(req.body || {}) }
+    });
+
     res.json({
       success: true,
       message: 'Link terpercaya disimpan & langsung berlaku (tanpa restart).',
@@ -428,6 +563,8 @@ const checkWebSearchUrl = async (req, res, next) => {
 
 module.exports = {
   getStats,
+  getAuditLogs,
+  getDashboardSummary,
   getConfig,
   getLlmConfig,
   updateLlmConfig,

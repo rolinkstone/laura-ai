@@ -7,8 +7,11 @@ const validate = require('../middlewares/validate');
 const router = express.Router();
 
 const chatAskValidation = [
-  body('question').trim().notEmpty().withMessage('Pertanyaan (question) wajib diisi'),
-  body('session_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('session_id tidak valid'),
+  body('question')
+    .trim()
+    .notEmpty().withMessage('Pertanyaan (question) wajib diisi')
+    .isLength({ max: 4000 }).withMessage('Pertanyaan maksimal 4000 karakter'),
+  body('session_id').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1 }).withMessage('session_id tidak valid'),
   body('category_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('category_id tidak valid'),
   body('limit').optional({ nullable: true }).isInt({ min: 1, max: 20 }).withMessage('limit harus 1-20')
 ];

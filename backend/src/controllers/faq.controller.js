@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { recordAudit } = require('../services/auditService');
 
 /**
  * GET /api/faq
@@ -51,6 +52,8 @@ const createFaq = async (req, res, next) => {
       'INSERT INTO faq (question, answer, category) VALUES (?, ?, ?)',
       [question, answer, category]
     );
+    await recordAudit(req, { action: 'faq.create', entity: 'faq', entityId: result.insertId, detail: { question: req.body?.question?.slice(0, 120) } });
+
     res.status(201).json({
       success: true,
       message: 'FAQ berhasil dibuat',
@@ -77,6 +80,7 @@ const updateFaq = async (req, res, next) => {
       'UPDATE faq SET question = ?, answer = ?, category = ?, is_active = ? WHERE id = ?',
       [question, answer, category, is_active, id]
     );
+    await recordAudit(req, { action: 'faq.update', entity: 'faq', entityId: req.params.id });
     res.json({ success: true, message: 'FAQ berhasil diperbarui' });
   } catch (err) {
     next(err);
@@ -92,6 +96,7 @@ const deleteFaq = async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'FAQ tidak ditemukan' });
     }
+    await recordAudit(req, { action: 'faq.delete', entity: 'faq', entityId: req.params.id });
     res.json({ success: true, message: 'FAQ berhasil dihapus' });
   } catch (err) {
     next(err);

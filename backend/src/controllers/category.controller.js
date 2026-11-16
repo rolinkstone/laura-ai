@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { recordAudit } = require('../services/auditService');
 
 /**
  * GET /api/categories
@@ -29,6 +30,8 @@ const createCategory = async (req, res, next) => {
       'INSERT INTO document_categories (name, description, parent_id) VALUES (?, ?, ?)',
       [name, description, parent_id]
     );
+    await recordAudit(req, { action: 'category.create', entity: 'category', entityId: result.insertId, detail: { name: req.body?.name } });
+
     res.status(201).json({
       success: true,
       message: 'Kategori berhasil dibuat',
@@ -54,6 +57,7 @@ const updateCategory = async (req, res, next) => {
       'UPDATE document_categories SET name = ?, description = ?, parent_id = ? WHERE id = ?',
       [name, description, parent_id ?? null, id]
     );
+    await recordAudit(req, { action: 'category.update', entity: 'category', entityId: req.params.id });
     res.json({ success: true, message: 'Kategori berhasil diperbarui' });
   } catch (err) {
     next(err);
@@ -69,6 +73,7 @@ const deleteCategory = async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Kategori tidak ditemukan' });
     }
+    await recordAudit(req, { action: 'category.delete', entity: 'category', entityId: req.params.id });
     res.json({ success: true, message: 'Kategori berhasil dihapus' });
   } catch (err) {
     next(err);

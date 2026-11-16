@@ -1,6 +1,21 @@
 const { pool } = require('../config/db');
+const { recordAudit } = require('../services/auditService');
 const { ask: askAI, askStream: askAIStream } = require('../services/ai/ai.service');
 const { getRecentHistory } = require('../services/chatHistoryService');
+
+/**
+ * Boleh mengakses sesi ini?
+ * Admin boleh semua sesi; user lain hanya sesi miliknya sendiri.
+ * Sesi tamu (user_id NULL) TIDAK boleh diakses lewat endpoint terautentikasi —
+ * kalau dibiarkan, user mana pun bisa membajak sesi tamu hanya dengan menebak id,
+ * dan chat dari halaman /admin akan ikut menulis ke sesi tamu tersebut.
+ */
+const canAccessSession = (user, session) => {
+  if (!session) return false;
+  if (user.role_name === 'admin') return true;
+  if (session.user_id === null || session.user_id === undefined) return false;
+  return Number(session.user_id) === Number(user.id);
+};
 
 /**
  * Simpan pesan (user + asisten) & log AI ke database.
@@ -59,27 +74,31 @@ const runRagAndPersist = async ({ userId, sessionId, question, categoryId, limit
  * @returns {Promise<number>} sessionId
  */
 const resolveSession = async (req, sessionIdParam) => {
-  let sessionId = sessionIdParam;
-  if (sessionId) {
-    const [s] = await pool.query('SELECT id, user_id FROM chat_sessions WHERE id = ?', [sessionId]);
+  // Body dari form JSON: terima juga string angka / string kosong
+  const raw = sessionIdParam === '' || sessionIdParam === undefined ? null : sessionIdParam;
+  const requested = raw === null ? null : Number(raw);
+  const hasSession = requested !== null && raw !== null && !Number.isNaN(requested);
+
+  if (hasSession) {
+    const [s] = await pool.query('SELECT id, user_id FROM chat_sessions WHERE id = ?', [requested]);
     if (s.length === 0) {
       const err = new Error('Sesi tidak ditemukan');
       err.status = 404;
       throw err;
     }
-    if (req.user.role_name !== 'admin' && s[0].user_id !== req.user.id) {
+    if (!canAccessSession(req.user, s[0])) {
       const err = new Error('Anda tidak memiliki akses ke sesi ini');
       err.status = 403;
       throw err;
     }
-  } else {
-    const [s] = await pool.query(
-      'INSERT INTO chat_sessions (user_id, title) VALUES (?, ?)',
-      [req.user.id, 'Percakapan baru']
-    );
-    sessionId = s.insertId;
+    return s[0].id;
   }
-  return sessionId;
+
+  const [s] = await pool.query(
+    'INSERT INTO chat_sessions (user_id, title) VALUES (?, ?)',
+    [req.user.id, 'Percakapan baru']
+  );
+  return s.insertId;
 };
 
 /**
@@ -218,9 +237,27 @@ const getSessions = async (req, res, next) => {
       params.push(req.user.id);
     }
 
-    sql += ' ORDER BY cs.updated_at DESC';
+    // Paginasi: riwayat terus tumbuh, jadi jangan pernah kirim seluruh tabel.
+    // `before_id` dipakai untuk halaman berikutnya (id menurun seiring waktu).
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const beforeId = Number(req.query.before_id);
+    if (Number.isInteger(beforeId) && beforeId > 0) {
+      sql += `${params.length ? ' AND' : ' WHERE'} cs.id < ?`;
+      params.push(beforeId);
+    }
+
+    sql += ' ORDER BY cs.updated_at DESC LIMIT ' + limit;
     const [rows] = await pool.query(sql, params);
-    res.json({ success: true, data: rows });
+
+    res.json({
+      success: true,
+      data: rows,
+      meta: {
+        limit,
+        hasMore: rows.length === limit,
+        nextBeforeId: rows.length ? rows[rows.length - 1].id : null
+      }
+    });
   } catch (err) {
     next(err);
   }
@@ -264,7 +301,7 @@ const getSessionMessages = async (req, res, next) => {
     }
 
     // Cek kepemilikan (kecuali admin)
-    if (req.user.role_name !== 'admin' && session[0].user_id !== req.user.id) {
+    if (!canAccessSession(req.user, session[0])) {
       return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke sesi ini' });
     }
 
@@ -292,7 +329,7 @@ const sendMessage = async (req, res, next) => {
     if (session.length === 0) {
       return res.status(404).json({ success: false, message: 'Sesi tidak ditemukan' });
     }
-    if (req.user.role_name !== 'admin' && session[0].user_id !== req.user.id) {
+    if (!canAccessSession(req.user, session[0])) {
       return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke sesi ini' });
     }
 
@@ -333,11 +370,12 @@ const deleteSession = async (req, res, next) => {
     if (session.length === 0) {
       return res.status(404).json({ success: false, message: 'Sesi tidak ditemukan' });
     }
-    if (req.user.role_name !== 'admin' && session[0].user_id !== req.user.id) {
+    if (!canAccessSession(req.user, session[0])) {
       return res.status(403).json({ success: false, message: 'Anda tidak memiliki akses ke sesi ini' });
     }
 
     await pool.query('DELETE FROM chat_sessions WHERE id = ?', [id]);
+    await recordAudit(req, { action: 'chat_session.delete', entity: 'chat_session', entityId: id });
     res.json({ success: true, message: 'Sesi berhasil dihapus' });
   } catch (err) {
     next(err);

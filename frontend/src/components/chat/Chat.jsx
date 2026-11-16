@@ -35,7 +35,8 @@ import {
   getSessionId,
   setSessionId,
   getLocalHistory,
-  setLocalHistory
+  setLocalHistory,
+  getToken
 } from '../../lib/api';
 
 const LAURA_MENU = [
@@ -136,9 +137,15 @@ export default function Chat() {
     let acc = '';
 
     try {
+      // Bila user sudah login (punya JWT aplikasi), chat ini masuk ke sesi
+      // MILIKNYA lewat /chat: riwayatnya tampil di /admin/riwayat dan user
+      // tidak pernah menulis ke sesi tamu (ditolak backend).
+      const token = getToken();
       await streamChat({
         question,
         sessionId: getSessionId(),
+        path: token ? '/chat/stream' : '/public/chat/stream',
+        token: token || undefined,
         signal: controller.signal,
         onEvent: (evt) => {
           if (evt.type === 'plan') {
@@ -280,6 +287,9 @@ export default function Chat() {
     abortRef.current?.abort();
     setMessages([]);
     setLocalHistory([]);
+    // Percakapan baru = sesi baru. Tanpa ini, pertanyaan berikutnya menempel
+    // ke sesi lama (dan gagal 403 bila sesi itu ternyata milik user lain).
+    setSessionId(null);
     // Remount bersih → tata letak sama persis seperti refresh halaman
     setChatKey((k) => k + 1);
   };

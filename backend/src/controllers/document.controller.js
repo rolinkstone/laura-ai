@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('../config/db');
+const { recordAudit } = require('../services/auditService');
 const { UPLOAD_DIR } = require('../config/multer');
 const { extractPages } = require('../services/pdfService');
 const { chunkPages, cleanText } = require('../services/textProcessor');
@@ -132,6 +133,13 @@ const createDocument = async (req, res, next) => {
        metadata ? JSON.stringify(metadata) : null]
     );
 
+    await recordAudit(req, {
+      action: 'document.create',
+      entity: 'document',
+      entityId: result.insertId,
+      detail: { title, status, category_id, source_id }
+    });
+
     res.status(201).json({
       success: true,
       message: 'Dokumen berhasil dibuat',
@@ -173,6 +181,14 @@ const updateDocument = async (req, res, next) => {
 
     values.push(id);
     await pool.query(`UPDATE documents SET ${fields.join(', ')} WHERE id = ?`, values);
+
+    await recordAudit(req, {
+      action: 'document.update',
+      entity: 'document',
+      entityId: id,
+      detail: { fields: Object.keys(req.body).filter((k) => req.body[k] !== undefined) }
+    });
+
     res.json({ success: true, message: 'Dokumen berhasil diperbarui' });
   } catch (err) {
     next(err);
@@ -184,10 +200,22 @@ const updateDocument = async (req, res, next) => {
  */
 const deleteDocument = async (req, res, next) => {
   try {
+    // Ambil judul dulu: setelah DELETE, dokumen hilang sehingga audit perlu
+    // menyimpan jejak identitasnya (tidak bisa di-JOIN lagi).
+    const [found] = await pool.query('SELECT title, file_path FROM documents WHERE id = ?', [req.params.id]);
+
     const [result] = await pool.query('DELETE FROM documents WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
     }
+
+    await recordAudit(req, {
+      action: 'document.delete',
+      entity: 'document',
+      entityId: req.params.id,
+      detail: { title: found[0]?.title || null, file_path: found[0]?.file_path || null }
+    });
+
     res.json({ success: true, message: 'Dokumen berhasil dihapus' });
   } catch (err) {
     next(err);
@@ -354,6 +382,18 @@ const uploadDocument = async (req, res, next) => {
        req.file.filename, req.user.id, document_date || null, effective_date || null]
     );
     const documentId = result.insertId;
+
+    await recordAudit(req, {
+      action: 'document.upload',
+      entity: 'document',
+      entityId: documentId,
+      detail: {
+        title,
+        file: req.file.filename,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      }
+    });
 
     // 2) Balas lebih dulu — pemrosesan berat tidak menahan koneksi HTTP
     res.status(202).json({

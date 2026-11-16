@@ -147,6 +147,11 @@ export async function streamChat({
   timeoutMs = 90000,
   signal
 }) {
+  // Kirim session_id hanya kalau berupa angka valid. Nilai sisa localStorage
+  // ('' / 'null' / 'undefined') akan ditolak validator backend dan membuat
+  // pengguna melihat error padahal hanya perlu memulai sesi baru.
+  const sid = sessionId === null || sessionId === undefined ? null : Number(sessionId);
+  const safeSessionId = Number.isInteger(sid) && sid > 0 ? sid : null;
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -168,7 +173,7 @@ export async function streamChat({
     const res = await fetch(`${API_URL}${path}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ question, session_id: sessionId || null }),
+      body: JSON.stringify({ question, session_id: safeSessionId }),
       signal: controller.signal
     });
 

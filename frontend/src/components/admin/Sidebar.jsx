@@ -10,6 +10,7 @@ import {
   Link2,
   Cpu,
   History,
+  ShieldCheck,
   LogOut,
   Sparkles
 } from 'lucide-react';
@@ -27,7 +28,9 @@ const NAV = [
   { section: 'AI' },
   { href: '/admin/ai', label: 'Model & RAG', icon: Cpu, adminOnly: true },
   { section: 'Chat' },
-  { href: '/admin/riwayat', label: 'Riwayat', icon: History }
+  { href: '/admin/riwayat', label: 'Riwayat', icon: History },
+  { section: 'Keamanan' },
+  { href: '/admin/audit', label: 'Audit Log', icon: ShieldCheck, adminOnly: true }
 ];
 
 export default function Sidebar() {
@@ -47,7 +50,7 @@ export default function Sidebar() {
         </div>
         <div>
           <p className="font-semibold text-white text-sm leading-tight">BBPOM AI</p>
-          <p className="text-[11px] text-slate-400">Admin Console</p>
+          <p className="text-[11px] text-slate-400">{isAdmin ? 'Admin Console' : 'Panel Pengguna'}</p>
         </div>
       </div>
 

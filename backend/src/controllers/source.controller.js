@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { recordAudit } = require('../services/auditService');
 const webSearchConfig = require('../services/webSearchConfigService');
 
 /**
@@ -52,6 +53,8 @@ const createSource = async (req, res, next) => {
       [name, type, url, description]
     );
     await refreshWebScope();
+    await recordAudit(req, { action: 'source.create', entity: 'source', entityId: result.insertId, detail: { name: req.body?.name, url: req.body?.url } });
+
     res.status(201).json({
       success: true,
       message: 'Sumber berhasil dibuat',
@@ -79,6 +82,7 @@ const updateSource = async (req, res, next) => {
       [name, type, url, description, id]
     );
     await refreshWebScope();
+    await recordAudit(req, { action: 'source.update', entity: 'source', entityId: req.params.id });
     res.json({ success: true, message: 'Sumber berhasil diperbarui' });
   } catch (err) {
     next(err);
@@ -95,6 +99,7 @@ const deleteSource = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Sumber tidak ditemukan' });
     }
     await refreshWebScope();
+    await recordAudit(req, { action: 'source.delete', entity: 'source', entityId: req.params.id });
     res.json({ success: true, message: 'Sumber berhasil dihapus' });
   } catch (err) {
     next(err);

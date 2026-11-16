@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { recordAudit } = require('../services/auditService');
 
 /**
  * GET /api/roles
@@ -37,6 +38,13 @@ const createRole = async (req, res, next) => {
       'INSERT INTO roles (name, description) VALUES (?, ?)',
       [name, description]
     );
+    await recordAudit(req, {
+      action: 'role.create',
+      entity: 'role',
+      entityId: result.insertId,
+      detail: { name: req.body?.name }
+    });
+
     res.status(201).json({
       success: true,
       message: 'Role berhasil dibuat',
@@ -61,6 +69,7 @@ const updateRole = async (req, res, next) => {
     }
 
     await pool.query('UPDATE roles SET name = ?, description = ? WHERE id = ?', [name, description, id]);
+    await recordAudit(req, { action: 'role.update', entity: 'role', entityId: req.params.id });
     res.json({ success: true, message: 'Role berhasil diperbarui' });
   } catch (err) {
     next(err);
@@ -76,6 +85,7 @@ const deleteRole = async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Role tidak ditemukan' });
     }
+    await recordAudit(req, { action: 'role.delete', entity: 'role', entityId: req.params.id });
     res.json({ success: true, message: 'Role berhasil dihapus' });
   } catch (err) {
     next(err);

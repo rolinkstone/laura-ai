@@ -1,4 +1,5 @@
 const bcrypt = require('bcrypt');
+const { recordAudit } = require('../services/auditService');
 const { pool } = require('../config/db');
 
 /**
@@ -64,6 +65,13 @@ const createUser = async (req, res, next) => {
       [username, email, hashedPassword, full_name, nip, role_id]
     );
 
+    await recordAudit(req, {
+      action: 'user.create',
+      entity: 'user',
+      entityId: result.insertId,
+      detail: { username: req.body?.username, role_id: req.body?.role_id }
+    });
+
     res.status(201).json({
       success: true,
       message: 'User berhasil dibuat',
@@ -107,6 +115,12 @@ const updateUser = async (req, res, next) => {
     values.push(id);
     await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
 
+    await recordAudit(req, {
+      action: 'user.update',
+      entity: 'user',
+      entityId: req.params.id,
+      detail: { fields: Object.keys(req.body || {}) }
+    });
     res.json({ success: true, message: 'User berhasil diperbarui' });
   } catch (err) {
     next(err);
@@ -122,6 +136,7 @@ const deleteUser = async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
     }
+    await recordAudit(req, { action: 'user.delete', entity: 'user', entityId: req.params.id });
     res.json({ success: true, message: 'User berhasil dihapus' });
   } catch (err) {
     next(err);

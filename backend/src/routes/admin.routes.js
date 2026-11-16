@@ -1,6 +1,8 @@
 const express = require('express');
 const {
   getStats,
+  getAuditLogs,
+  getDashboardSummary,
   getConfig,
   getLlmConfig,
   updateLlmConfig,
@@ -17,7 +19,13 @@ const { auth, authorize } = require('../middlewares/auth');
 
 const router = express.Router();
 
-// Khusus role admin
+// ===== Dashboard =====
+// Ringkasan dashboard boleh dibaca SEMUA role yang login (isi disesuaikan
+// otomatis: admin lihat seluruh sistem, role lain hanya datanya sendiri).
+// Endpoint lain di bawah ini tetap khusus admin.
+router.get('/dashboard', auth, getDashboardSummary);
+
+// Khusus role admin (berlaku untuk semua route di bawah baris ini)
 router.use(auth, authorize('admin'));
 
 const llmUpdateValidation = [
@@ -29,6 +37,7 @@ const llmUpdateValidation = [
 ];
 
 router.get('/stats', getStats);
+router.get('/audit', getAuditLogs);
 router.get('/config', getConfig);
 router.get('/llm-config', getLlmConfig);
 router.post('/llm-config', llmUpdateValidation, validate, updateLlmConfig);

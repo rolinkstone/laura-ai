@@ -18,7 +18,7 @@
   "license": "ISC",
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "cheerio": "^1.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -28,12 +28,17 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^4.1.0",
-    "multer": "^2.2.0",
+    "multer": "^2.5.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.11.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.4",
     "pdf-lib": "^1.17.1"
+  },
+  "overrides": {
+    "sharp": "^0.35.5",
+    "protobufjs": "^7.6.3",
+    "tar": "^7.5.21"
   }
 }
