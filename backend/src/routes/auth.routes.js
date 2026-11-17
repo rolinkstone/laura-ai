@@ -1,5 +1,5 @@
 const express = require('express');
-const { register, login, keycloakLogin, getProfile } = require('../controllers/auth.controller');
+const { register, login, keycloakLogin, refresh, getProfile } = require('../controllers/auth.controller');
 const { registerValidation, loginValidation } = require('../validations/auth.validation');
 const validate = require('../middlewares/validate');
 const { auth } = require('../middlewares/auth');
@@ -39,5 +39,13 @@ router.post(
   keycloakLogin
 );
 router.get('/me', auth, getProfile);
+
+/**
+ * Perpanjang JWT aplikasi sebelum kedaluwarsa.
+ * Publik (tanpa cookie) — keamanannya bergantung pada token yang dikirim:
+ * hanya token yang masih valid yang bisa ditukar. Tidak ada sesi/server-state
+ * yang perlu dibersihkan saat refresh, sehingga tidak membuka celah baru.
+ */
+router.post('/refresh', authLimiter, auth, refresh);
 
 module.exports = router;

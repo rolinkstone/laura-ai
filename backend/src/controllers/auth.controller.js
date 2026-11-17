@@ -148,6 +148,37 @@ const keycloakLogin = async (req, res, next) => {
 };
 
 /**
+ * POST /api/auth/refresh
+ * Perpanjang masa berlaku JWT aplikasi memakai token yang MASIH BERLAKU.
+ * Dipakai frontend supaya pengguna tidak dipaksa login ulang setiap
+ * JWT_EXPIRES_IN habis selama sesi Keycloak-nya masih hidup.
+ */
+const refresh = async (req, res, next) => {
+  try {
+    const header = req.headers.authorization || '';
+    if (!header.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: 'Token tidak ditemukan. Silakan login.' });
+    }
+
+    // `auth` sudah memverifikasi token ini, jadi req.user pasti valid & aktif.
+    const token = signToken(req.user);
+
+    res.json({
+      success: true,
+      message: 'Token diperbarui',
+      data: {
+        id: req.user.id,
+        username: req.user.username,
+        role_name: req.user.role_name
+      },
+      token
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * GET /api/auth/me
  * Profile user yang sedang login
  */
@@ -159,4 +190,4 @@ const getProfile = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, keycloakLogin, getProfile };
+module.exports = { register, login, keycloakLogin, refresh, getProfile };

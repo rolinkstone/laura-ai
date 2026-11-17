@@ -77,7 +77,119 @@ export function setLocalHistory(messages) {
 }
 
 // ============ API client ============
-export async function api(path, { method = 'GET', body, token, isForm } = {}) {
+
+/**
+ * Status proses pertukaran token ke Keycloak.
+ * Dipakai untuk mencegah banyak request 401 memicu banyak pertukaran sekaligus.
+ * @type {Promise<string|null>|null}
+ */
+let exchangePromise = null;
+/** Apakah sudah pernah mencoba memulihkan di siklus hidup ini (anti jejak gagal). */
+let recoveryAttempted = false;
+
+/**
+ * Hitung kapan JWT aplikasi kedaluwarsa (epoch ms), atau null bila tak terbaca.
+ * @param {string} token
+ * @returns {number|null}
+ */
+export function getTokenExpiry(token) {
+  if (!token) return null;
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(
+      decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      )
+    );
+    return typeof json.exp === 'number' ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Token dianggap perlu diperbarui bila sisa umurnya < 2 menit. */
+const REFRESH_MARGIN_MS = 2 * 60 * 1000;
+
+/**
+ * Perpanjang JWT aplikasi memakai token yang masih berlaku.
+ * @returns {Promise<boolean>} true bila token baru berhasil disimpan
+ */
+async function refreshAppToken() {
+  const current = getToken();
+  if (!current) return false;
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${current}` }
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => ({}));
+    if (!data.token) return false;
+    setToken(data.token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Tukar sesi Keycloak (NextAuth) menjadi JWT aplikasi baru.
+ * Dipakai saat JWT aplikasi sudah kedaluwarsa tetapi sesi SSO masih ada.
+ * `getSession` diimpor dinamis karena lib ini juga dipakai halaman publik.
+ * @returns {Promise<string|null>} JWT baru atau null
+ */
+async function exchangeKeycloakSession() {
+  if (exchangePromise) return exchangePromise;
+
+  exchangePromise = (async () => {
+    try {
+      const { getSession } = await import('next-auth/react');
+      const session = await getSession();
+      if (!session?.accessToken) return null;
+      const data = await keycloakExchange(session.accessToken);
+      if (!data?.token) return null;
+      setToken(data.token);
+      return data.token;
+    } catch {
+      return null;
+    } finally {
+      exchangePromise = null;
+    }
+  })();
+
+  return exchangePromise;
+}
+
+/**
+ * Pulihkan sesi tanpa memaksa pengguna melihat error.
+ * Urutan: (1) refresh JWT berjalan, (2) tukar ulang dari sesi Keycloak.
+ * @returns {Promise<string|null>} token baru bila berhasil
+ */
+export async function recoverSession() {
+  if (recoveryAttempted) return null;
+  recoveryAttempted = true;
+  try {
+    if (await refreshAppToken()) return getToken();
+    return await exchangeKeycloakSession();
+  } finally {
+    // Beri kesempatan lagi pada siklus berikutnya (mis. setelah login ulang)
+    setTimeout(() => {
+      recoveryAttempted = false;
+    }, 15000);
+  }
+}
+
+/**
+ * Panggil API. Bila server menjawab 401 (token aplikasi kedaluwarsa),
+ * token diperbarui otomatis lalu request diulang SEKALI.
+ *
+ * @param {string} path
+ * @param {{method?: string, body?: any, token?: string, isForm?: boolean, retry?: boolean}} opsi
+ */
+export async function api(path, { method = 'GET', body, token, isForm, retry = true } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body && !isForm) headers['Content-Type'] = 'application/json';
@@ -89,6 +201,16 @@ export async function api(path, { method = 'GET', body, token, isForm } = {}) {
   });
 
   const data = await res.json().catch(() => ({}));
+
+  // Token kedaluwarsa → pulihkan lalu ulangi sekali dengan token baru.
+  // Hanya untuk request yang membawa token; request publik dibiarkan gagal apa adanya.
+  if (res.status === 401 && token && retry) {
+    const fresh = await recoverSession();
+    if (fresh) {
+      return api(path, { method, body, token: fresh, isForm, retry: false });
+    }
+  }
+
   if (!res.ok) {
     const err = new Error(data.message || `Error ${res.status}`);
     err.status = res.status;
@@ -106,11 +228,18 @@ export async function api(path, { method = 'GET', body, token, isForm } = {}) {
  * @param {{token?: string, filename?: string}} opsi nama file simpanan
  * @returns {Promise<string>} nama file yang dipakai
  */
-export async function downloadFile(path, { token, filename } = {}) {
+export async function downloadFile(path, { token, filename, retry = true } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}${path}`, { headers });
+
+  // Token kedaluwarsa saat mengunduh → pulihkan lalu ulangi sekali.
+  if (res.status === 401 && token && retry) {
+    const fresh = await recoverSession();
+    if (fresh) return downloadFile(path, { token: fresh, filename, retry: false });
+  }
+
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const err = new Error(data.message || `Gagal mengunduh file (${res.status})`);
@@ -145,8 +274,17 @@ export async function streamChat({
   token,
   onEvent,
   timeoutMs = 90000,
-  signal
+  signal,
+  retry = true
 }) {
+  // Token sesi hampir/sudah habis → perbarui dulu supaya streaming tidak
+  // gagal di tengah jalan dengan pesan "token kedaluwarsa".
+  const exp = getTokenExpiry(token);
+  if (token && exp && exp - Date.now() < REFRESH_MARGIN_MS) {
+    const fresh = await refreshAppToken();
+    if (fresh) token = getToken();
+  }
+
   // Kirim session_id hanya kalau berupa angka valid. Nilai sisa localStorage
   // ('' / 'null' / 'undefined') akan ditolak validator backend dan membuat
   // pengguna melihat error padahal hanya perlu memulai sesi baru.
@@ -179,6 +317,17 @@ export async function streamChat({
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
+
+      // Token kedaluwarsa → pulihkan lalu ulangi sekali.
+      if (res.status === 401 && token && retry) {
+        const fresh = await recoverSession();
+        if (fresh) {
+          return streamChat({
+            question, sessionId, path, token: fresh, onEvent, timeoutMs, signal, retry: false
+          });
+        }
+      }
+
       // Tampilkan field yang gagal validasi (jika ada) agar mudah dilacak
       const detail =
         Array.isArray(data.errors) && data.errors.length > 0

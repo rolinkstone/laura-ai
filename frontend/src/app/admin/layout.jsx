@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Sidebar from '../../components/admin/Sidebar';
-import { getToken, setToken, keycloakExchange } from '../../lib/api';
+import { getToken, setToken, keycloakExchange, getTokenExpiry, recoverSession } from '../../lib/api';
 import { logoutSSO } from '../../lib/auth';
 
 export default function AdminLayout({ children }) {
@@ -14,29 +14,59 @@ export default function AdminLayout({ children }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Sudah punya JWT aplikasi → langsung tampil
-    const localToken = getToken();
-    if (localToken) {
-      setReady(true);
-      return;
-    }
+    let cancelled = false;
 
-    // Menunggu NextAuth menentukan status sesi
-    if (status === 'loading') return;
+    const boot = async () => {
+      const localToken = getToken();
 
-    // Login via Keycloak → tukar access token menjadi JWT aplikasi
-    if (status === 'authenticated' && session?.accessToken) {
-      keycloakExchange(session.accessToken)
-        .then((res) => {
-          setToken(res.token);
+      if (localToken) {
+        // Token ada tapi hampir/sudah kedaluwarsa: perbarui SEBELUM halaman
+        // memanggil API, supaya pengguna tidak sempat melihat pesan
+        // "Token aplikasi sudah kedaluwarsa" saat pertama membuka dashboard.
+        const exp = getTokenExpiry(localToken);
+        const perluPerbarui = exp !== null && exp - Date.now() < 2 * 60 * 1000;
+
+        if (!perluPerbarui) {
           setReady(true);
-        })
-        .catch((err) => setError(err.message));
-      return;
-    }
+          return;
+        }
 
-    // Tidak ada token & tidak login → ke halaman login
-    router.replace('/login');
+        // recoverSession() sudah menangani dua jalur sekaligus:
+        // token berjalan → /auth/refresh, token lewat → tukar sesi Keycloak.
+        const refreshed = await recoverSession();
+        if (cancelled) return;
+        if (refreshed) {
+          setReady(true);
+          return;
+        }
+        // Tidak bisa dipulihkan → lanjut ke blok Keycloak / redirect login di bawah.
+      }
+
+      // Menunggu NextAuth menentukan status sesi
+      if (status === 'loading') return;
+
+      // Login via Keycloak → tukar access token menjadi JWT aplikasi
+      if (status === 'authenticated' && session?.accessToken) {
+        keycloakExchange(session.accessToken)
+          .then((res) => {
+            if (cancelled) return;
+            setToken(res.token);
+            setReady(true);
+          })
+          .catch((err) => {
+            if (!cancelled) setError(err.message);
+          });
+        return;
+      }
+
+      // Tidak ada token & tidak login → ke halaman login
+      router.replace('/login');
+    };
+
+    boot();
+    return () => {
+      cancelled = true;
+    };
   }, [status, session, router]);
 
   if (error) {
