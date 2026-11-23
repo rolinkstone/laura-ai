@@ -12,6 +12,7 @@ const ragRoutes = require('./rag.routes');
 const publicRoutes = require('./public.routes');
 const categoryRoutes = require('./category.routes');
 const adminRoutes = require('./admin.routes');
+const jkIntegrationRoutes = require('./jkIntegration.routes');
 
 const router = express.Router();
 
@@ -28,5 +29,7 @@ router.use('/knowledge-base', knowledgeBaseRoutes);
 router.use('/rag', ragRoutes);
 router.use('/public', publicRoutes);
 router.use('/admin', adminRoutes);
+// Integrasi API Jendela Kinerja → knowledge (admin)
+router.use('/integrations/jk', jkIntegrationRoutes);
 
 module.exports = router;

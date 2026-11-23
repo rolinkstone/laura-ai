@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth';
 import KeycloakProvider from 'next-auth/providers/keycloak';
+import { authCookies, PAKAI_COOKIE_AMAN } from '../../../../lib/authCookies';
 
 export const authOptions = {
   providers: [
@@ -11,6 +12,11 @@ export const authOptions = {
   ],
   secret: process.env.NEXTAUTH_SECRET,
   session: { strategy: 'jwt' },
+  // Nama cookie DIPISAH dari aplikasi lain di host yang sama (lihat
+  // lib/authCookies.js): cookie dipisah per host, bukan per port, sehingga
+  // nama default akan saling menimpa antar aplikasi NextAuth di localhost.
+  cookies: authCookies,
+  useSecureCookies: PAKAI_COOKIE_AMAN,
   pages: {
     signIn: '/login'
   },

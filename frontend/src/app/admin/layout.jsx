@@ -94,10 +94,13 @@ export default function AdminLayout({ children }) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen w-full overflow-hidden">
+      {/* min-w-0 WAJIB: tanpa itu item flex tidak boleh menyusut di bawah
+          lebar kontennya, sehingga tabel lebar mendorong seluruh dashboard
+          keluar layar. */}
       <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-slate-50">
-        <div className="p-6 lg:p-8">{children}</div>
+      <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-slate-50">
+        <div className="p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
     </div>
   );

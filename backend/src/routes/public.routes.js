@@ -1,5 +1,6 @@
 const express = require('express');
 const { ask, stream, feedback } = require('../controllers/publicChat.controller');
+const { buatPresentasi } = require('../controllers/presentasi.controller');
 const { chatLimiter } = require('../middlewares/rateLimiter');
 const { body } = require('express-validator');
 const validate = require('../middlewares/validate');
@@ -26,5 +27,10 @@ const feedbackValidation = [
 router.post('/chat', chatLimiter, chatAskValidation, validate, ask);
 router.post('/chat/stream', chatLimiter, chatAskValidation, validate, stream);
 router.post('/feedback', feedbackValidation, validate, feedback);
+
+// Narasi presentasi dashboard Jendela Kinerja — dipakai widget LAURA di
+// halaman publik /jendela-kinerja. Data dashboard dikirim dari browser JK,
+// LLM hanya memperhalus bahasa; angka tetap dari payload.
+router.post('/presentasi', chatLimiter, buatPresentasi);
 
 module.exports = router;
