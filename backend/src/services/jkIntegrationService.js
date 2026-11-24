@@ -109,29 +109,81 @@ const verifyEndpointToken = async (kode, token) => {
 
 const fmt = (n) => (n === null || n === undefined ? '-' : Number(n).toLocaleString('id-ID'));
 
+/**
+ * Perakit teks knowledge untuk endpoint /publik/kinerja/ringkasan.
+ *
+ * ATURAN PENTING (jangan diubah tanpa alasan):
+ * SARANA DIPERIKSA = sarana produksi + sarana distribusi. SAMPEL LAB TIDAK
+ * DIHITUNG sebagai sarana — sampel adalah objek pengujian laboratorium.
+ * Versi lama meratakan seluruh `total` apa adanya dan mendaftar `per_jenis_sarana`
+ * termasuk baris `Sampling`, sehingga LLM menjumlahkan komoditi sampel
+ * (Obat/Kosmetika/OT/SK) ke dalam "sarana diperiksa" — jawabannya jadi
+ * 926 padahal sarana sesungguhnya 13 (2026).
+ * Karena itu blok sarana dan blok sampel DIPISAH dan masing-masing diberi
+ * peringatan eksplisit supaya tidak dijumlahkan.
+ */
 const perakitRingkasan = (data, param) => {
   const t = data.total || {};
+  const num = (v) => Number(v || 0);
+
+  // Sarana = hanya baris Produksi & Distribusi (kegiatan 'Sampling' dibuang).
+  const jenisSarana = (data.per_jenis_sarana || []).filter((r) => r.kegiatan !== 'Sampling');
+  const jenisSampel = (data.per_jenis_sarana || []).filter((r) => r.kegiatan === 'Sampling');
+
+  const mkProduksi = num(t.produksi_mk);
+  const mkDistribusi = num(t.distribusi_mk);
+  const tmkProduksi = num(t.produksi_tmk);
+  const tmkDistribusi = num(t.distribusi_tmk);
+
   const lines = [
-    `# Rekap Kinerja Pengawasan BBPOM di Palangka Raya`,
-    param.tahun ? `Periode: tahun ${param.tahun}` : 'Periode: seluruh tahun',
+    // Tahun WAJIB ada di judul, bukan hanya di baris "Periode".
+    // Pencarian kemiripan (embedding) memakai seluruh isi chunk; tanpa tahun di
+    // judul, chunk 2026 kalah dari chunk 2024 dan dari dokumen lain yang
+    // kebetulan memuat "2026" — akibatnya LAURA menjawab "2026 belum tersedia".
+    `# Rekap Kinerja Pengawasan BBPOM di Palangka Raya — ${param.tahun ? `Tahun ${param.tahun}` : 'Seluruh Tahun'}`,
+    `Sumber: Jendela Kinerja — endpoint /publik/kinerja/ringkasan`,
+    `Periode: ${param.tahun ? `tahun ${param.tahun}` : 'seluruh tahun'}`,
     '',
-    `## Ringkasan Angka`,
-    ...Object.entries(t).map(([k, v]) => `- ${k.replace(/_/g, ' ')}: ${fmt(v)}`),
+    `## Angka Utama`,
+    `- **Total Sarana Diperiksa: ${fmt(t.sarana_diperiksa)}** (sarana produksi ${fmt(t.produksi)} + sarana distribusi ${fmt(t.distribusi)})`,
+    `  Definisi: sarana diperiksa = sarana PRODUKSI + sarana DISTRIBUSI. Sampel laboratorium TIDAK dihitung sebagai sarana.`,
+    `- Jumlah jenis sarana: ${fmt(t.jumlah_jenis_sarana)}`,
     '',
-    `## Per Kabupaten/Kota`,
-    `| Kabupaten/Kota | Sarana | MK | TMK | Sampel Lab |`,
-    `|---|---|---|---|---|`,
+    `## Hasil Pemeriksaan Sarana (di luar sampel)`,
+    `- Memenuhi Ketentuan (MK): ${fmt(mkProduksi + mkDistribusi)} (produksi ${fmt(mkProduksi)} + distribusi ${fmt(mkDistribusi)})`,
+    `- Tidak Memenuhi Ketentuan (TMK): ${fmt(tmkProduksi + tmkDistribusi)} (produksi ${fmt(tmkProduksi)} + distribusi ${fmt(tmkDistribusi)})`,
+    `- Temuan ketidaksesuaian: mayor ${fmt(t.temuan_mayor)} · minor ${fmt(t.temuan_minor)} · lainnya ${fmt(t.temuan_lain)} · kritis ${fmt(t.temuan_kritis)}`,
+    '',
+    `## Sarana per Kabupaten/Kota`,
+    `Kolom "Sarana Diperiksa" TIDAK termasuk sampel.`,
+    `| Kabupaten/Kota | Sarana Diperiksa | Produksi | Distribusi | MK | TMK | Mayor | Minor |`,
+    `|---|---|---|---|---|---|---|---|`,
     ...(data.per_kab_kota || []).map(
       (r) =>
-        `| ${r.kab_kota || '-'} | ${fmt(r.total)} | ${fmt(Number(r.produksi_mk || 0) + Number(r.distribusi_mk || 0))} | ${fmt(
-          Number(r.produksi_tmk || 0) + Number(r.distribusi_tmk || 0)
-        )} | ${fmt(r.sampel_lab)} |`
+        `| ${r.kab_kota || '-'} | ${fmt(r.total)} | ${fmt(r.produksi)} | ${fmt(r.distribusi)} | ` +
+        `${fmt(num(r.produksi_mk) + num(r.distribusi_mk))} | ${fmt(num(r.produksi_tmk) + num(r.distribusi_tmk))} | ` +
+        `${fmt(r.mayor)} | ${fmt(r.minor)} |`
     ),
     '',
-    `## Per Jenis Sarana`,
-    ...(data.per_jenis_sarana || []).map((r) => `- ${r.jenis_sarana} (${r.kegiatan}): ${fmt(r.jumlah)}`),
+    `## Rincian Sarana per Jenis (hanya sarana)`,
+    ...(jenisSarana.length
+      ? jenisSarana.map((r) => `- ${r.kegiatan} — ${r.jenis_sarana}: ${fmt(r.jumlah)}`)
+      : ['- (tidak ada sarana pada periode ini)']),
     '',
-    `## Per Bulan`,
+    `## Pengujian Laboratorium — SAMPEL (BUKAN BAGIAN SARANA DIPERIKSA)`,
+    `PENTING: angka di bagian ini TIDAK boleh ditambahkan ke "Total Sarana Diperiksa".`,
+    `- Total sampel lab: ${fmt(t.sampel_lab)}`,
+    `- Rincian per komoditi sampel: ${
+      jenisSampel.length ? jenisSampel.map((r) => `${r.jenis_sarana} ${fmt(r.jumlah)}`).join(' · ') : '(tidak ada sampel)'
+    }`,
+    `- Untuk MK/TMK pengujian, gunakan endpoint /publik/kinerja/sampel.`,
+    '',
+    `## Sampel Lab per Kabupaten/Kota (bukan sarana)`,
+    `| Kabupaten/Kota | Sampel Lab |`,
+    `|---|---|`,
+    ...(data.per_kab_kota || []).map((r) => `| ${r.kab_kota || '-'} | ${fmt(r.sampel_lab)} |`),
+    '',
+    `## Kegiatan per Bulan`,
     ...(data.per_bulan || []).map((r) => `- ${r.nama}: ${fmt(r.jumlah)}`),
     '',
     `## 10 Sarana Terbanyak Diperiksa`,
@@ -143,8 +195,8 @@ const perakitRingkasan = (data, param) => {
 const perakitRekapSampel = (data, param) => {
   const t = data.total || {};
   const lines = [
-    `# Hasil Pengujian Laboratorium — Rekap Sampel BBPOM di Palangka Raya`,
-    param.tahun ? `Periode: tahun ${param.tahun}` : 'Periode: seluruh tahun',
+    `# Hasil Pengujian Laboratorium — Rekap Sampel BBPOM di Palangka Raya — ${param.tahun ? `Tahun ${param.tahun}` : 'Seluruh Tahun'}`,
+    `Periode: ${param.tahun ? `tahun ${param.tahun}` : 'seluruh tahun'}`,
     '',
     `## Total`,
     `- sampel diuji: ${fmt(t.sampel)}`,
@@ -191,18 +243,50 @@ const perakitPilihan = (data) => {
   return lines.join('\n');
 };
 
+/**
+ * Perakit teks knowledge untuk endpoint /publik/kinerja/sarana.
+ *
+ * DUA jebakan yang pernah membuat jawaban LAURA salah:
+ *  1. Endpoint ini mengembalikan kunci **`baris`** (bukan `rows`). Versi lama
+ *     membaca `data.data || data.rows` sehingga daftarnya SELALU kosong dan
+ *     LAURA menjawab "Daftar Sarana Diperiksa masih kosong" padahal ada isinya.
+ *  2. Daftar ini memuat baris SARANA dan baris SAMPEL (kegiatan 'Sampling').
+ *     Tanpa keterangan, pembaca mengira semuanya sarana. Sekarang kolom
+ *     Kegiatan ditampilkan dan jumlah sarana dihitung terpisah.
+ */
 const perakitDaftarSarana = (data, param) => {
-  const rows = data.data || data.rows || [];
+  const rows = data.baris || data.rows || data.data || [];
+  const total = Number(data.total || rows.length);
+  const BATAS = 60;
+  const tampil = rows.slice(0, BATAS);
+
+  const barisSarana = (data.baris || []).filter((r) => r.kegiatan !== 'Sampling').length;
+  const barisSampel = (data.baris || []).filter((r) => r.kegiatan === 'Sampling').length;
+
   const lines = [
-    `# Daftar Sarana Diperiksa`,
-    param.tahun ? `Tahun: ${param.tahun}` : '',
+    `# Daftar Baris Sarana & Sampel Diperiksa`,
+    param.tahun ? `Tahun: ${param.tahun}` : 'Tahun: seluruh tahun',
+    `Jumlah baris pada sumber: ${fmt(total)}`,
+    data.total_sarana !== undefined
+      ? `Jumlah SARANA diperiksa (kegiatan Produksi + Distribusi): ${fmt(data.total_sarana)}`
+      : '',
+    data.total_sampel !== undefined ? `Jumlah baris SAMPEL (kegiatan Sampling): ${fmt(data.total_sampel)}` : '',
+    `CATATAN: daftar ini mencampur baris SARANA (kegiatan Produksi/Distribusi) dan baris SAMPEL (kegiatan Sampling). ` +
+      `Sampel BUKAN sarana diperiksa — untuk jumlah sarana pakai "Total Sarana Diperiksa" pada rekap ringkasan.`,
+    barisSarana + barisSampel > 0
+      ? `Pada halaman ini: ${fmt(barisSarana)} baris sarana, ${fmt(barisSampel)} baris sampel.`
+      : '',
     '',
-    `| Nama Sarana | Jenis | Kab/Kota | Kesimpulan |`,
-    `|---|---|---|---|`,
-    ...rows.map(
+    `| Nama Sarana | Kegiatan | Jenis | Kab/Kota | Tanggal | Kesimpulan | Produk Sampel |`,
+    `|---|---|---|---|---|---|---|`,
+    ...tampil.map(
       (r) =>
-        `| ${r.nama_sarana || r.nama || '-'} | ${r.jenis_sarana || r.sumber_label || '-'} | ${r.kab_kota || '-'} | ${r.kesimpulan_akhir || '-'} |`
-    )
+        `| ${r.nama_sarana || r.nama || '-'} | ${r.kegiatan || '-'} | ${r.jenis_sarana || r.sumber_label || '-'} | ` +
+        `${r.kab_kota || '-'} | ${r.tgl_periksa_mulai || '-'} | ${r.kesimpulan_akhir || '-'} | ${r.produk_sampel || '-'} |`
+    ),
+    tampil.length < total
+      ? `\n(ditampilkan ${fmt(tampil.length)} baris pertama dari ${fmt(total)}; sebutkan bila pengguna ingin rincian lebih banyak)`
+      : ''
   ];
   return lines.filter(Boolean).join('\n');
 };
@@ -228,6 +312,28 @@ const selTabel = (v) => {
   return String(v).replace(/\|/g, '/');
 };
 
+/**
+ * Format nilai apa adanya untuk knowledge.
+ *
+ * JANGAN pakai `fmt()` di sini. `fmt` memanggil Number(...).toLocaleString(),
+ * sehingga: teks "OT 2026.xlsx" menjadi "NaN", tahun 2026 menjadi "2.024",
+ * dan tanggal ISO tetap utuh tapi terlihat seperti angka. Knowledge yang
+ * penuh "NaN" membuat jawaban LAURA mengarang dan tidak rapi.
+ * Angka biasa dicetak tanpa pemisah ribuan supaya tahun tidak berubah.
+ */
+const nilaiTeks = (v) => {
+  if (v === null || v === undefined || v === '') return '-';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '-';
+  if (typeof v === 'boolean') return v ? 'ya' : 'tidak';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'object') return selTabel(v);
+  const s = String(v).trim();
+  // tanggal ISO dari driver MySQL → bentuk yang mudah dibaca
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  if (iso) return `${iso[1]} ${iso[2]}`;
+  return s;
+};
+
 const rakitNilai = (nilai, judul, level = 2) => {
   const garis = [];
   const prefix = '#'.repeat(Math.min(level, 6));
@@ -249,16 +355,19 @@ const rakitNilai = (nilai, judul, level = 2) => {
   if (nilai && typeof nilai === 'object') {
     garis.push(`${prefix} ${judul}`);
     for (const [k, v] of Object.entries(nilai)) {
-      if (v !== null && typeof v === 'object') {
+      // Nilai kosong tidak ditulis sama sekali — baris "- X: -" hanya
+      // menambah kebisingan dan membuat model mengira datanya hilang.
+      if (v === null || v === undefined || v === '') continue;
+      if (typeof v === 'object') {
         garis.push(...rakitNilai(v, judulField(k), level + 1));
       } else {
-        garis.push(`- ${judulField(k)}: ${fmt(v)}`);
+        garis.push(`- ${judulField(k)}: ${nilaiTeks(v)}`);
       }
     }
     return garis;
   }
 
-  return [`${prefix} ${judul}: ${fmt(nilai)}`];
+  return [`${prefix} ${judul}: ${nilaiTeks(nilai)}`];
 };
 
 const perakitGenerik = (data, param, konteks = {}) => {

@@ -25,6 +25,13 @@ Instruksi:
 2. Jika jawaban tidak tersedia pada sumber, katakan bahwa Anda tidak memiliki informasi tersebut. JANGAN mengarang atau menebak.
 3. Jawab dalam Bahasa Indonesia yang jelas, ringkas, sopan, dan ramah.
 4. Sebutkan referensi halaman/sumber bila tersedia.
+5. JANGAN menjumlahkan sendiri angka dari beberapa baris kecuali sumber menyatakan angkanya sebagai total. Pakai angka total yang sudah tersedia (mis. "Total Sarana Diperiksa").
+6. SAMPEL LAB bukan sarana. "Sarana diperiksa" = sarana produksi + sarana distribusi; sampel adalah bagian pengujian laboratorium. Jangan pernah menambahkan jumlah sampel (Obat, Kosmetika, Obat Tradisional, Suplemen Kesehatan, dll.) ke jumlah sarana.
+7. Bila jawaban memuat angka rekap, susun rapi dengan pola tetap:
+   - SATU baris angka utama di awal, dicetak tebal, mis. "**Total Sarana Diperiksa tahun 2026: 13 sarana**";
+   - rincian dalam TABEL markdown bila 3 baris atau lebih (bukan deretan poin berisi angka);
+   - angka ribuan memakai titik (1.311), persen satu desimal;
+   - akhiri paling banyak satu baris catatan sumber. Hindari mengulang angka yang sama di beberapa bagian.
 
 === SUMBER ===
 ${context}`;
@@ -47,6 +54,13 @@ Instruksi:
 3. Jika jawaban tidak tersedia pada sumber, katakan dengan jujur bahwa informasi tersebut belum tersedia dan sarankan menghubungi kanal resmi BBPOM. JANGAN mengarang atau menebak.
 4. Jawab dalam Bahasa Indonesia yang jelas, ringkas, sopan, dan ramah. Gunakan poin-poin bila jawaban berupa langkah/persyaratan.
 5. Sebutkan referensi halaman/sumber bila tersedia, dan sitasi kedua jenis sumber bila keduanya dipakai.
+6. JANGAN menjumlahkan sendiri angka dari beberapa baris kecuali sumber menyatakan angkanya sebagai total. Pakai angka total yang sudah tersedia (mis. "Total Sarana Diperiksa").
+7. SAMPEL LAB bukan sarana. "Sarana diperiksa" = sarana produksi + sarana distribusi; sampel adalah bagian pengujian laboratorium. Jangan pernah menambahkan jumlah sampel (Obat, Kosmetika, Obat Tradisional, Suplemen Kesehatan, dll.) ke jumlah sarana.
+8. Bila jawaban memuat angka rekap, susun rapi dengan pola tetap:
+   - SATU baris angka utama di awal, dicetak tebal, mis. "**Total Sarana Diperiksa tahun 2026: 13 sarana**";
+   - rincian dalam TABEL markdown bila 3 baris atau lebih (bukan deretan poin berisi angka);
+   - angka ribuan memakai titik (1.311), persen satu desimal;
+   - akhiri paling banyak satu baris catatan sumber. Hindari mengulang angka yang sama di beberapa bagian.
 ${
   weakSources
     ? '\nCATATAN PENTING: sumber di bawah ini HANYA menyinggung topik, bukan jawaban langsung (relevansi rendah). Jangan memaksakan jawaban dari sumber tersebut. Bila tidak memuat jawabannya, katakan belum tersedia lalu arahkan pengguna untuk memeriksa mandiri pada tautan resmi (mis. cekbpom.pom.go.id) atau menghubungi kanal resmi BBPOM di Palangka Raya.\n'

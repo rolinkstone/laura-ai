@@ -34,6 +34,52 @@ const normalizeVector = (value) => {
 };
 
 /**
+ * Penguat konteks (re-rank) untuk pencarian kemiripan.
+ *
+ * Model embedding yang dipakai menghasilkan skor yang sangat berdekatan
+ * (0,86–0,88) untuk dokumen yang jelas berbeda topiknya. Akibat nyata: pertanyaan
+ * "Total Sarana Diperiksa tahun 2026" memunculkan ringkasan modul Obat
+ * Tradisional di peringkat 1, sedangkan chunk rekap 2026 tidak masuk hasil —
+ * LAURA lalu menjawab "data 2026 belum tersedia" padahal ada.
+ *
+ * Penyelesaian: beri bonus kecil pada chunk yang menyebut TAHUN dari pertanyaan
+ * di bagian awal isi/judul, dan pada chunk yang memuat frasa kunci pertanyaan.
+ * Bonus hanya pengurut; `score` yang dikembalikan tetap kemiripan aslinya.
+ */
+const KATA_UMUM = new Set([
+  'yang', 'untuk', 'dengan', 'dari', 'pada', 'tahun', 'berapa', 'adalah', 'dan', 'atau',
+  'di', 'ke', 'ini', 'itu', 'apa', 'data', 'jumlah', 'total', 'ada', 'tidak', 'bisa'
+]);
+
+const tahunDalam = (teks) => [...new Set(String(teks).match(/\b(?:19|20)\d{2}\b/g) || [])];
+
+const frasaKunci = (teks) => {
+  const kata = String(teks).toLowerCase().match(/[a-z]{4,}/g) || [];
+  const penting = kata.filter((k) => !KATA_UMUM.has(k));
+  const frasa = [];
+  for (let i = 0; i < penting.length - 1; i += 1) frasa.push(`${penting[i]} ${penting[i + 1]}`);
+  return [...new Set(frasa)];
+};
+
+const bonusKonteks = (query, judul, isi) => {
+  const awal = String(isi || '').slice(0, 240).toLowerCase();
+  const judulKecil = String(judul || '').toLowerCase();
+  let bonus = 0;
+
+  // Tahun yang disebut pertanyaan harus muncul di JUDUL atau di awal isi.
+  for (const th of tahunDalam(query)) {
+    if (judulKecil.includes(th) || awal.includes(th)) bonus += 0.08;
+  }
+
+  // Frasa kunci (mis. "sarana diperiksa") menandakan topik yang tepat.
+  for (const f of frasaKunci(query)) {
+    if (judulKecil.includes(f) || awal.includes(f)) bonus += 0.05;
+  }
+
+  return Math.min(bonus, 0.16);
+};
+
+/**
  * Vector search: embed pertanyaan → cari chunk paling relevan.
  * Embedding disimpan sebagai JSONB; cosine similarity dihitung di Node.js
  * (tanpa ekstensi pgvector).
@@ -69,10 +115,12 @@ const searchChunks = async (query, options = {}) => {
   const results = rows
     .map((r) => {
       const vec = normalizeVector(r.embedding);
-      return { ...r, score: vec ? cosineSimilarity(queryVec, vec) : 0 };
+      const score = vec ? cosineSimilarity(queryVec, vec) : 0;
+      const bonus = bonusKonteks(query, r.document_title, r.content);
+      return { ...r, score, bonus, skorAkhir: score + bonus };
     })
     .filter((r) => r.score >= minScore)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.skorAkhir - a.skorAkhir)
     .slice(0, limit);
 
   // Jangan kembalikan vektor embedding (terlalu besar) — hanya metadata
@@ -85,7 +133,8 @@ const searchChunks = async (query, options = {}) => {
     page_number: r.page_number,
     section: r.section,
     content: r.content,
-    score: Number(r.score.toFixed(4))
+    score: Number(r.score.toFixed(4)),
+    bonus: Number(r.bonus.toFixed(3))
   }));
 };
 
